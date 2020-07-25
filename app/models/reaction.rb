@@ -1,143 +1,195 @@
 class Reaction < ApplicationRecord
+  include Searchable
+  BASE_POINTS = {
+    "vomit" => -50.0,
+    "thumbsup" => 5.0,
+    "thumbsdown" => -10.0
+  }.freeze
+
+  SEARCH_SERIALIZER = Search::ReactionSerializer
+  SEARCH_CLASS = Search::Reaction
+
+  CATEGORIES = %w[like readinglist unicorn thinking hands thumbsup thumbsdown vomit].freeze
+  PUBLIC_CATEGORIES = %w[like readinglist unicorn thinking hands].freeze
+  REACTABLE_TYPES = %w[Comment Article User].freeze
+  STATUSES = %w[valid invalid confirmed archived].freeze
+
   belongs_to :reactable, polymorphic: true
-  counter_culture :reactable,
-    column_name: proc { |model|
-      model.points.positive? ? "positive_reactions_count" : "reactions_count"
-    }
-  counter_culture :user
   belongs_to :user
 
-  validates :category, inclusion: { in: %w(like thinking hands unicorn thumbsdown vomit readinglist) }
-  validates :reactable_type, inclusion: { in: %w(Comment Article) }
+  counter_culture :reactable,
+                  column_name: proc { |model|
+                    PUBLIC_CATEGORIES.include?(model.category) ? "public_reactions_count" : "reactions_count"
+                  }
+  counter_culture :user
+
+  scope :public_category, -> { where(category: PUBLIC_CATEGORIES) }
+  scope :readinglist, -> { where(category: "readinglist") }
+  scope :for_articles, ->(ids) { where(reactable_type: "Article", reactable_id: ids) }
+  scope :eager_load_serialized_data, -> { includes(:reactable, :user) }
+
+  validates :category, inclusion: { in: CATEGORIES }
+  validates :reactable_type, inclusion: { in: REACTABLE_TYPES }
+  validates :status, inclusion: { in: STATUSES }
   validates :user_id, uniqueness: { scope: %i[reactable_id reactable_type category] }
   validate  :permissions
 
+  after_create :notify_slack_channel_about_vomit_reaction, if: -> { category == "vomit" }
   before_save :assign_points
-  after_save :update_reactable
-  before_destroy :update_reactable_without_delay
-  after_save :touch_user
-  after_save :async_bust
-  before_destroy :clean_up_before_destroy
+  after_create_commit :record_field_test_event
+  after_commit :async_bust
+  after_commit :bust_reactable_cache, :update_reactable, on: %i[create update]
+  after_commit :index_to_elasticsearch, if: :indexable?, on: %i[create update]
+  after_commit :remove_from_elasticsearch, if: :indexable?, on: [:destroy]
 
-  include StreamRails::Activity
-  as_activity
+  before_destroy :update_reactable_without_delay, unless: :destroyed_by_association
+  before_destroy :bust_reactable_cache_without_delay
 
-  def self.count_for_reactable(reactable)
-    Rails.cache.fetch("count_for_reactable-#{reactable.class.name}-#{reactable.id}", expires_in: 1.hour) do
-      [{ category: "like", count: Reaction.where(reactable_id: reactable.id, reactable_type: reactable.class.name, category: "like").size },
-       { category: "readinglist", count: Reaction.where(reactable_id: reactable.id, reactable_type: reactable.class.name, category: "readinglist").size },
-       { category: "unicorn", count: Reaction.where(reactable_id: reactable.id, reactable_type: reactable.class.name, category: "unicorn").size }]
+  class << self
+    def count_for_article(id)
+      Rails.cache.fetch("count_for_reactable-Article-#{id}", expires_in: 10.hours) do
+        reactions = Reaction.where(reactable_id: id, reactable_type: "Article")
+        counts = reactions.group(:category).count
+
+        %w[like readinglist unicorn].map do |type|
+          { category: type, count: counts.fetch(type, 0) }
+        end
+      end
+    end
+
+    def cached_any_reactions_for?(reactable, user, category)
+      class_name = reactable.class.name == "ArticleDecorator" ? "Article" : reactable.class.name
+      cache_name = "any_reactions_for-#{class_name}-#{reactable.id}-" \
+        "#{user.reactions_count}-#{user.public_reactions_count}-#{category}"
+      Rails.cache.fetch(cache_name, expires_in: 24.hours) do
+        Reaction.where(reactable_id: reactable.id, reactable_type: class_name, user: user, category: category).any?
+      end
     end
   end
 
-  def self.for_display(user)
-    includes(:reactable).
-      where(reactable_type: "Article", user_id: user.id).
-      where("created_at > ?", 5.days.ago).
-      select("distinct on (reactable_id) *").
-      take(15)
+  # no need to send notification if:
+  # - reaction is negative
+  # - receiver is the same user as the one who reacted
+  # - receive_notification is disabled
+  def skip_notification_for?(receiver)
+    points.negative? ||
+      (user_id == reactable.user_id) ||
+      (receiver.is_a?(User) && reactable.receive_notifications == false)
   end
 
-  # notifications
-
-  def activity_object
-    self
+  def vomit_on_user?
+    reactable_type == "User" && category == "vomit"
   end
 
-  def activity_target
-    "#{reactable_type}_#{reactable_id}"
+  def reaction_on_organization_article?
+    reactable_type == "Article" && reactable.organization.present?
   end
 
-  def activity_notify
-    return if user_id == reactable.user_id
-    return if points.negative?
-    [StreamNotifier.new(reactable.user.id).notify]
-  end
-
-  def remove_from_feed
-    super
-    User.find_by(id: reactable.user.id)&.touch(:last_notification_activity)
-  end
-
-  def self.cached_any_reactions_for?(reactable, user, category)
-    Rails.cache.fetch("any_reactions_for-#{reactable.class.name}-#{reactable.id}-#{user.updated_at}-#{category}", expires_in: 24.hours) do
-      Reaction.
-        where(reactable_id: reactable.id, reactable_type: reactable.class.name, user_id: user.id, category: category).
-        any?
+  def target_user
+    if reactable_type == "User"
+      reactable
+    else
+      reactable.user
     end
-  end
-
-  private
-
-  def update_reactable
-    cache_buster = CacheBuster.new
-    if reactable_type == "Article"
-      reactable.async_score_calc
-      reactable.index!
-      cache_buster.bust "/reactions?article_id=#{reactable_id}"
-    elsif reactable_type == "Comment"
-      reactable.save
-      cache_buster.bust "/reactions?commentable_id=#{reactable.commentable_id}&commentable_type=#{reactable.commentable_type}"
-    end
-    cache_buster.bust user.path
-    occasionally_sync_reaction_counts
-  end
-  handle_asynchronously :update_reactable
-
-  def touch_user
-    user.touch
-  end
-  handle_asynchronously :touch_user
-
-  def async_bust
-    featured_articles = Article.where(featured: true).order("hotness_score DESC").limit(3).pluck(:id)
-    if featured_articles.include?(reactable.id)
-      reactable.touch
-      cache_buster = CacheBuster.new
-      cache_buster.bust "/"
-      cache_buster.bust "/"
-      cache_buster.bust "/?i=i"
-      cache_buster.bust "?i=i"
-    end
-  end
-  handle_asynchronously :async_bust
-
-  def clean_up_before_destroy
-    reactable.index! if reactable_type == "Article"
-  end
-
-  BASE_POINTS = {
-    "vomit" => -50.0,
-    "thumbsdown" => -10.0,
-  }.freeze
-
-  def assign_points
-    base_points = BASE_POINTS.fetch(category, 1.0)
-    self.points = user ? (base_points * user.reputation_modifier) : -5
-  end
-
-  def permissions
-    if negative_reaction_from_untrusted_user?
-      errors.add(:category, "is not valid.")
-    end
-
-    if reactable_type == "Article" && !reactable.published
-      errors.add(:reactable_id, "is not valid.")
-    end
-  end
-
-  def occasionally_sync_reaction_counts
-    # Fixes any out-of-sync positive_reactions_count
-    if rand(6) == 1 || reactable.positive_reactions_count.negative?
-      reactable.update_column(:positive_reactions_count, reactable.reactions.where("points > ?", 0).size)
-    end
-  end
-
-  def negative_reaction_from_untrusted_user?
-    negative? && !user.trusted
   end
 
   def negative?
     category == "vomit" || category == "thumbsdown"
+  end
+
+  private
+
+  def indexable?
+    category == "readinglist" && reactable && reactable.published
+  end
+
+  def update_reactable
+    Reactions::UpdateReactableWorker.perform_async(id)
+  end
+
+  def bust_reactable_cache
+    Reactions::BustReactableCacheWorker.perform_async(id)
+  end
+
+  def async_bust
+    Reactions::BustHomepageCacheWorker.perform_async(id)
+  end
+
+  def bust_reactable_cache_without_delay
+    Reactions::BustReactableCacheWorker.new.perform(id)
+  end
+
+  def update_reactable_without_delay
+    Reactions::UpdateReactableWorker.new.perform(id)
+  end
+
+  def reading_time
+    reactable.reading_time if category == "readinglist"
+  end
+
+  def reactable_user
+    return unless category == "readinglist"
+
+    {
+      username: reactable.user_username,
+      name: reactable.user_name,
+      profile_image_90: reactable.user.profile_image_90
+    }
+  end
+
+  def reactable_published_date
+    reactable.readable_publish_date if category == "readinglist"
+  end
+
+  def searchable_reactable_title
+    reactable.title if category == "readinglist"
+  end
+
+  def searchable_reactable_text
+    reactable.body_text[0..350] if category == "readinglist"
+  end
+
+  def searchable_reactable_tags
+    reactable.cached_tag_list if category == "readinglist"
+  end
+
+  def searchable_reactable_path
+    reactable.path if category == "readinglist"
+  end
+
+  def reactable_tags
+    reactable.decorate.cached_tag_list_array if category == "readinglist"
+  end
+
+  def viewable_by
+    user_id
+  end
+
+  def assign_points
+    base_points = BASE_POINTS.fetch(category, 1.0)
+    base_points = 0 if status == "invalid"
+    base_points /= 2 if reactable_type == "User"
+    base_points *= 2 if status == "confirmed"
+    self.points = user ? (base_points * user.reputation_modifier) : -5
+  end
+
+  def permissions
+    errors.add(:category, "is not valid.") if negative_reaction_from_untrusted_user?
+
+    errors.add(:reactable_id, "is not valid.") if reactable_type == "Article" && !reactable&.published
+  end
+
+  def negative_reaction_from_untrusted_user?
+    return if user&.any_admin?
+
+    negative? && !user.trusted
+  end
+
+  def record_field_test_event
+    Users::RecordFieldTestEventWorker.perform_async(user_id, :user_home_feed, "user_creates_reaction")
+  end
+
+  def notify_slack_channel_about_vomit_reaction
+    Slack::Messengers::ReactionVomit.call(reaction: self)
   end
 end

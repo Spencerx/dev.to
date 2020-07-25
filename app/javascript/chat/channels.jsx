@@ -1,121 +1,119 @@
 import { h } from 'preact';
 import PropTypes from 'prop-types';
-import ConfigImage from 'images/three-dots.svg';
-import GroupImage from 'images/organization.svg';
+// eslint-disable-next-line import/no-unresolved
+import ConfigImage from 'images/overflow-horizontal.svg';
+import ChannelButton from './components/channelButton';
+import { channelSorter } from './util';
 
-const Channels = ({ activeChannelId,
+const Channels = ({
+  activeChannelId,
+  chatChannels,
+  unopenedChannelIds,
+  handleSwitchChannel,
+  expanded,
+  filterQuery = '',
+  channelsLoaded,
+  currentUserId,
+  triggerActiveContent,
+}) => {
+  const sortedChatChannels = channelSorter(
     chatChannels,
-    handleSwitchChannel,
-    expanded,
+    currentUserId,
     filterQuery,
-    channelsLoaded,
-    incomingVideoCallChannelIds }) => {
-  const channels = chatChannels.map((channel, index) => {
-    if (!channel) { return}
-    const isActive = parseInt(activeChannelId, 10) === channel.id
-    let lastOpened = channel.last_opened_at
-    if (!lastOpened) {
-      if (channel.channel_users[window.currentUser.username]) {
-        lastOpened = channel.channel_users[window.currentUser.username].last_opened_at
-      } else {
-        lastOpened = new Date();
-      }
-    }
-    const isUnopened = (new Date(channel.last_message_at) > new Date(lastOpened)) && channel.messages_count > 0;
-    
-    const otherClassname =
-      isActive
-        ? 'chatchanneltab--active'
-        : 'chatchanneltab--inactive';
-    const name = channel.channel_type === "direct" ? '@'+channel.slug.replace(`${window.currentUser.username}/`, '').replace(`/${window.currentUser.username}`, '') : channel.channel_name
-    const newMessagesIndicatorClass = isUnopened ? "new" : "old"
-    const modififedSlug = channel.channel_type === "direct" ? name : channel.slug;
-    const indicatorPic = channel.channel_type === "direct" ? <img src = {channel.channel_users[name.replace('@','')].profile_image} className='chatchanneltabindicatordirectimage' /> : <img src={GroupImage} />
-    let channelColor = 'transparent'
-    if (channel.channel_type === "direct" && isActive) {
-      channelColor = channel.channel_users[name.replace('@','')].darker_color;
-    } else if ( isActive ) {
-      channelColor = '#4e57ef'
-    }
+  );
+  const discoverableChannels = sortedChatChannels.discoverableChannels.map(
+    (channel) => {
+      return (
+        <ChannelButton
+          channel={channel}
+          discoverableChannel
+          triggerActiveContent={triggerActiveContent}
+          isActiveChannel={
+            parseInt(activeChannelId, 10) === channel.chat_channel_id
+          }
+        />
+      );
+    },
+  );
+  const channels = sortedChatChannels.activeChannels.map((channel) => {
+    const isActive = parseInt(activeChannelId, 10) === channel.chat_channel_id;
+    const isUnopened =
+      !isActive && unopenedChannelIds.includes(channel.chat_channel_id);
+    const newMessagesIndicator = isUnopened ? 'new' : 'old';
+    const otherClassname = isActive
+      ? 'chatchanneltab--active'
+      : 'chatchanneltab--inactive';
 
-    let content = ''
-
-    if (expanded) {
-      content = <span>
-                  <span 
-                    data-channel-slug={modififedSlug}
-                    className={"chatchanneltabindicator chatchanneltabindicator--" + newMessagesIndicatorClass}
-                    data-channel-id={channel.id}
-                    data-channel-slug={modififedSlug}>
-                    {indicatorPic}
-                  </span>
-                  {name}
-                </span>
-    } else {
-      if (channel.channel_type === "direct") {
-
-        content = <span 
-                    data-channel-slug={modififedSlug}
-                    className={"chatchanneltabindicator chatchanneltabindicator--" + newMessagesIndicatorClass}
-                    data-channel-id={channel.id}
-                    data-channel-slug={modififedSlug}>
-                    {indicatorPic}
-                  </span>
-      } else {
-        content = name
-      }
-    }
-    let callIndicator = ''
-    if (incomingVideoCallChannelIds && incomingVideoCallChannelIds.includes(channel.id)) {
-      callIndicator = <span className='chatchanneltabindicator chatchanneltabindicator--phone'>📞</span>
-    }
     return (
-      <button
-        key={channel.id}
-        className='chatchanneltabbutton'
-        onClick={handleSwitchChannel}
-        data-channel-id={channel.id}
-        data-channel-slug={modififedSlug}
-      >
-        <span className={`chatchanneltab ${otherClassname} chatchanneltab--${newMessagesIndicatorClass}`}
-          data-channel-id={channel.id}
-          data-channel-slug={modififedSlug}
-          style={{border:`1px solid ${channelColor}`, boxShadow: `3px 3px 0px ${channelColor}`}}
-        >
-          {callIndicator}
-          {content}
-        </span>
-      </button>
+      <ChannelButton
+        channel={channel}
+        newMessagesIndicator={newMessagesIndicator}
+        otherClassname={otherClassname}
+        handleSwitchChannel={handleSwitchChannel}
+        isUnopened={isUnopened}
+      />
     );
   });
-  let channelsListFooter = ""
-  if (channels.length === 30) {
-    channelsListFooter = <div className="chatchannels__channelslistfooter">...</div>
-  }
-  let topNotice = ''
-  if (expanded &&
+  let topNotice = '';
+  if (
+    expanded &&
     filterQuery.length === 0 &&
     channelsLoaded &&
-    (channels.length === 0 || channels[0].messages_count === 0) ) {
-      topNotice = <div className="chatchannels__channelslistheader">
-        👋 Welcome to <b>DEV Connect</b>! You may message anyone you mutually follow. 
+    (channels.length === 0 || channels[0].messages_count === 0)
+  ) {
+    topNotice = (
+      <div className="chatchannels__channelslistheader" role="alert">
+        <span role="img" aria-label="emoji">
+          👋
+        </span>{' '}
+        Welcome to
+        <b> DEV Connect</b>! You may message anyone you mutually follow.
       </div>
+    );
   }
-  let configFooter = ''
+
+  let channelsListFooter = '';
+  if (channels.length === 30) {
+    channelsListFooter = (
+      <div className="chatchannels__channelslistfooter">...</div>
+    );
+  }
+  let configFooter = '';
   if (expanded) {
-    configFooter = <div className="chatchannels__config">
-        <img src={ConfigImage} style={{height: "18px"}}/>
-        <div className="chatchannels__configmenu">
-          <a href="/settings">DEV Settings</a>
-          <a href="/report-abuse">Report Abuse</a>
+    // TODO: The <div /> below should be converted into a real menu or <nav />
+    configFooter = (
+      <div className="chatchannels__config">
+        <img alt="configration" src={ConfigImage} style={{ height: '18px' }} />
+        <div className="chatchannels__configmenu" role="menu">
+          <a href="/settings" role="menuitem">
+            DEV Settings
+          </a>
+          <a href="/report-abuse" role="menuitem">
+            Report Abuse
+          </a>
         </div>
       </div>
+    );
   }
   return (
     <div className="chatchannels">
-      <div className="chatchannels__channelslist" id="chatchannels__channelslist">
+      <div
+        className="chatchannels__channelslist"
+        id="chatchannels__channelslist"
+        data-testid="chat-channels-list"
+      >
         {topNotice}
         {channels}
+        {discoverableChannels.length > 0 && filterQuery.length > 0 ? (
+          <div>
+            <span className="crayons-indicator crayons-indicator--">
+              Global Channel Search
+            </span>
+            {discoverableChannels}
+          </div>
+        ) : (
+          ''
+        )}
         {channelsListFooter}
       </div>
       {configFooter}
@@ -125,9 +123,14 @@ const Channels = ({ activeChannelId,
 
 Channels.propTypes = {
   activeChannelId: PropTypes.number.isRequired,
-  chatChannels: PropTypes.array.isRequired,
+  chatChannels: PropTypes.arrayOf(PropTypes.objectOf()).isRequired,
+  unopenedChannelIds: PropTypes.arrayOf().isRequired,
   handleSwitchChannel: PropTypes.func.isRequired,
+  triggerActiveContent: PropTypes.func.isRequired,
   expanded: PropTypes.bool.isRequired,
+  filterQuery: PropTypes.string.isRequired,
+  channelsLoaded: PropTypes.bool.isRequired,
+  currentUserId: PropTypes.string.isRequired,
 };
 
 export default Channels;

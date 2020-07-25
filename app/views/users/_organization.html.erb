@@ -1,7 +1,6 @@
-<% if @user.organization && @user.org_admin %>
-  <%= render "users/org_admin" %>
-<% elsif @user.organization %>  
-  <%= render "users/org_member" %>
+<% if @organization_membership %>
+  <%# "org_admin", "org_guest", "org_member", etc. For all types, see app/models/organization_membership.rb  %>
+  <%= render "users/org_#{@organization_membership.type_of_user}" %>
 <% else %>
   <%= render "users/org_non_member" %>
 <% end %>

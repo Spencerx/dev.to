@@ -1,27 +1,60 @@
 ---
 items:
-  - path: get-api-keys-dev-env.md
-    title: Getting API Keys for Dev Environment
-  - path: testing.md
-    title: Testing
-  - path: frontend.md
-    title: Frontend
-  - path: addl-tech.md
-    title: Key App Tech & Services
-  - path: additional-postgres-setup.md
-    title: Additional PostgreSQL Setup (for non-macOS)
-  - path: helpful-hints.md
-    title: Random Helpful Things
-  - path: faq.md
-    title: FAQ
-  - path: license-faq.md
-    title: License FAQ
+  - technical-overview
+  - installation
+  - getting-started
+  - contributing
+  - backend
+  - frontend
+  - internal
+  - design
+  - tests
+  - faqs.md
+  - troubleshooting.md
+  - licensing.md
+  - self-hosting.md
+  - maintainers
 ---
-# Welcome to the dev.to documentation!
-_If you're viewing this on GitHub, we recommend viewing our docs on our static page: [docs.dev.to](https://docs.dev.to)_
 
-This is the home of the nitty-gritty technical details for contributing to dev.to.
+# Welcome to Forem's developer documentation
 
-If you're looking to get started, check out our [`README` in the main repo.](https://github.com/thepracticaldev/dev.to)
+On this site you'll find instructions to setup a [local instance of
+Forem][installation], documentation on the [architecture of
+Forem][architecture], [how to contribute][contributing], and many other useful
+documents.
 
-Have any questions, comments, or concerns? Check out our [FAQ](https://docs.dev.to/faq/), or ask for help in our [help thread on dev.to](https://dev.to/devteam/devto-open-source-helpdiscussion-thread-v0-1l45)!
+This documentation site is the product of a number of volunteer contributors
+working alongside the Forem Core Team, special thanks to all those who have
+contributed to the documentation.
+
+# Running the documentation locally
+
+Like Forem, this site is open source and the code is [hosted on GitHub][docs].
+If you find any incorrect information, or a even a typo, we'd love to see a pull
+request. Follow these steps to get the documentation site running locally.
+
+Forem's documentation is built with [GitDocs NodeJS library][gitdocs].
+
+To start the gitdocs server, you should run `yarn gitdocs serve` from the
+root of the `forem` project or from the `/docs` directory.
+
+```shell
+yarn gitdocs serve
+```
+
+This will start a server where you can browse the documentation:
+<http://localhost:8000/>
+
+If you add new pages or rename existing pages, you'll need to restart the server
+for those changes to take effect.
+
+# Contributing to the docs
+
+If you're looking for more information on contributing, check out the
+[Contributing guide][contributing].
+
+[installation]: /installation/
+[architecture]: /technical-overview/architecture/
+[contributing]: /contributing/
+[docs]: https://github.com/forem/forem/tree/master/docs/
+[gitdocs]: https://www.npmjs.com/package/gitdocs/

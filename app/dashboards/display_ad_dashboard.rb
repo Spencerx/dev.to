@@ -13,14 +13,13 @@ class DisplayAdDashboard < Administrate::BaseDashboard
     placement_area: Field::String,
     body_markdown: Field::Text,
     processed_html: Field::Text,
-    cost_per_impression: Field::Number.with_options(decimals: 2),
-    cost_per_click: Field::Number.with_options(decimals: 2),
     impressions_count: Field::Number,
     clicks_count: Field::Number,
+    success_rate: Field::Number,
     published: Field::Boolean,
     approved: Field::Boolean,
     created_at: Field::DateTime,
-    updated_at: Field::DateTime,
+    updated_at: Field::DateTime
   }.freeze
 
   # COLLECTION_ATTRIBUTES
@@ -33,6 +32,9 @@ class DisplayAdDashboard < Administrate::BaseDashboard
     id
     placement_area
     body_markdown
+    published
+    approved
+    success_rate
   ].freeze
 
   # SHOW_PAGE_ATTRIBUTES
@@ -43,10 +45,9 @@ class DisplayAdDashboard < Administrate::BaseDashboard
     placement_area
     body_markdown
     processed_html
-    cost_per_impression
-    cost_per_click
     impressions_count
     clicks_count
+    success_rate
     published
     approved
     created_at
@@ -60,8 +61,6 @@ class DisplayAdDashboard < Administrate::BaseDashboard
     organization
     placement_area
     body_markdown
-    cost_per_impression
-    cost_per_click
     published
     approved
   ].freeze

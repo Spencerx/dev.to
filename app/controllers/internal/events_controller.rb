@@ -1,18 +1,20 @@
 module Internal
   class EventsController < ApplicationController
     layout "internal"
+    include ApplicationHelper
+
     def index
       @event = Event.new(
-        location_name: "dev.to/live",
-        location_url: "https://dev.to",
+        location_name: "#{URL.domain}/live",
+        location_url: app_url,
         description_markdown: "*Description* *Pre-requisites:* *Bio*",
       )
-      @events = Event.order("starts_at DESC")
+      @events = Event.order(starts_at: :desc)
     end
 
     def create
       @event = Event.new(event_params)
-      @events = Event.order("starts_at DESC")
+      @events = Event.order(starts_at: :desc)
       if @event.save
         flash[:success] = "Successfully created event: #{@event.title}"
         redirect_to(action: :index)
@@ -24,9 +26,8 @@ module Internal
 
     def update
       @event = Event.find(params[:id])
-      @events = Event.order("starts_at DESC")
+      @events = Event.order(starts_at: :desc)
       if @event.update(event_params)
-        CacheBuster.new.bust "/live_articles"
         flash[:success] = "#{@event.title} was successfully updated"
         redirect_to "/internal/events"
       else
@@ -38,19 +39,12 @@ module Internal
     private
 
     def event_params
-      params.require(:event).permit(:title,
-                                  :category,
-                                  :event_date,
-                                  :starts_at,
-                                  :ends_at,
-                                  :location_name,
-                                  :cover_image,
-                                  :location_url,
-                                  :description_markdown,
-                                  :published,
-                                  :host_name,
-                                  :profile_image,
-                                  :live_now)
+      allowed_params = %i[
+        title category event_date starts_at ends_at
+        location_name cover_image location_url description_markdown published
+        host_name profile_image live_now
+      ]
+      params.require(:event).permit(allowed_params)
     end
   end
 end

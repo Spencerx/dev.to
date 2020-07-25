@@ -1,41 +1,29 @@
 class FeedbackMessage < ApplicationRecord
-  belongs_to :offender, foreign_key: "offender_id", class_name: "User", optional: true
-  belongs_to :reviewer, foreign_key: "reviewer_id", class_name: "User", optional: true
-  belongs_to :reporter, foreign_key: "reporter_id", class_name: "User", optional: true
-  belongs_to :victim, foreign_key: "victim_id", class_name: "User", optional: true
-  has_one :note, as: :noteable, dependent: :destroy
+  resourcify
 
-  validates_presence_of :feedback_type, :message
-  validates_presence_of :reported_url, :category, if: :abuse_report?
+  belongs_to :offender, class_name: "User", optional: true, inverse_of: :offender_feedback_messages
+  belongs_to :reporter, class_name: "User", optional: true, inverse_of: :reporter_feedback_messages
+  belongs_to :affected, class_name: "User", optional: true, inverse_of: :affected_feedback_messages
+  has_many :notes, as: :noteable, inverse_of: :noteable, dependent: :destroy
+
+  validates :feedback_type, :message, presence: true
+  validates :reported_url, :category, presence: { if: :abuse_report? }, length: { maximum: 250 }
+  validates :message, length: { maximum: 2500 }
   validates :category,
             inclusion: {
-              in: ["spam", "other", "rude or vulgar", "harassment", "bug"],
+              in: ["spam", "other", "rude or vulgar", "harassment", "bug", "listings"]
             }
-
-  before_validation :generate_slug
+  validates :status,
+            inclusion: {
+              in: %w[Open Invalid Resolved]
+            }
+  validates :reporter_id, uniqueness: { scope: %i[reported_url feedback_type] }, if: :abuse_report? && :reporter_id
 
   def abuse_report?
     feedback_type == "abuse-reports"
   end
 
-  def generate_slug
-    self.slug = SecureRandom.hex(10) unless slug?
-  end
-
   def capitalize_status
-    self.status = status.capitalize unless status.blank?
-  end
-
-  def to_eastern_strftime(time)
-    return if time.nil?
-    time.in_time_zone("America/New_York").strftime("%A, %b %d %Y - %I:%M %p %Z")
-  end
-
-  def path
-    "/reports/#{slug}"
-  end
-
-  def find_or_create_note(reason)
-    note || Note.new(reason: reason, noteable_id: id, noteable_type: "FeedbackMessage")
+    self.status = status.capitalize if status.present?
   end
 end

@@ -1,16 +1,11 @@
 class DigestMailer < ApplicationMailer
-  default from: "DEV Digest <yo@dev.to>"
+  default from: -> { email_from("Digest") }
 
-  def digest_email(user, articles)
-    @user = user
-    @articles = articles.first(6)
+  def digest_email
+    @user = params[:user]
+    @articles = params[:articles].first(6)
     @unsubscribe = generate_unsubscribe_token(@user.id, :email_digest_periodic)
-    @boosted_article = Suggester::Articles::Boosted.new(
-      @user,
-      @articles.first,
-      not_ids: @articles.pluck(:id),
-      area: "dev_digest_email",
-    ).suggest
+
     subject = generate_title
     mail(to: @user.email, subject: subject)
   end
@@ -31,26 +26,27 @@ class DigestMailer < ApplicationMailer
   end
 
   def email_end_phrase
-    # "more trending DEV posts" won the previous split test
+    community_name = ApplicationConfig["COMMUNITY_NAME"]
+    # "more trending posts" won the previous split test
     # Included more often as per explore-exploit algorithm
     [
-      "more trending DEV posts",
-      "more trending DEV posts",
-      "more trending DEV posts",
-      "more trending DEV posts",
-      "more trending DEV posts",
-      "more trending DEV posts",
-      "more trending DEV posts",
-      "more trending DEV posts",
-      "more trending DEV posts",
+      "more trending #{community_name} posts",
+      "more trending #{community_name} posts",
+      "more trending #{community_name} posts",
+      "more trending #{community_name} posts",
+      "more trending #{community_name} posts",
+      "more trending #{community_name} posts",
+      "more trending #{community_name} posts",
+      "more trending #{community_name} posts",
+      "more trending #{community_name} posts",
       "other posts you might like",
-      "other DEV posts you might like",
-      "other trending DEV posts",
-      "other top DEV posts",
-      "more top DEV posts",
+      "other #{community_name} posts you might like",
+      "other trending #{community_name} posts",
+      "other top #{community_name} posts",
+      "more top #{community_name} posts",
       "more top reads from the community",
-      "more top DEV posts based on your interests",
-      "more trending DEV posts picked for you",
+      "more top #{community_name} posts based on your interests",
+      "more trending #{community_name} posts picked for you",
     ].sample
   end
 end

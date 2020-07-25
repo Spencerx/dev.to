@@ -1,30 +1,14 @@
 desc "This task is called by the Heroku scheduler add-on"
 
 task get_podcast_episodes: :environment do
-  Podcast.find_each do |p|
-    PodcastFeed.new.get_episodes(p, 5)
+  Podcast.published.select(:id).find_each do |podcast|
+    Podcasts::GetEpisodesWorker.perform_async(podcast_id: podcast.id, limit: 5)
   end
-end
-
-task periodic_cache_bust: :environment do
-  cache_buster = CacheBuster.new
-  cache_buster.bust("/enter")
-  cache_buster.bust("/new")
-  cache_buster.bust("/dashboard")
-  cache_buster.bust("/users/auth/twitter")
-  cache_buster.bust("/users/auth/github")
-  cache_buster.bust("/feed")
-  cache_buster.bust("/feed")
-  cache_buster.bust("/feed.xml")
-end
-
-task hourly_bust: :environment do
-  CacheBuster.new.bust("/")
 end
 
 task fetch_all_rss: :environment do
   Rails.application.eager_load!
-  RssReader.get_all_articles
+  RssReader.get_all_articles(false) # False means don't force fetch. Fetch "random" subset instead of all of them.
 end
 
 task resave_supported_tags: :environment do
@@ -32,34 +16,17 @@ task resave_supported_tags: :environment do
   Tag.where(supported: true).find_each(&:save)
 end
 
-task renew_hired_articles: :environment do
-  Article.
-    tagged_with("hiring").
-    where("featured_number < ?", 7.days.ago.to_i + 11.minutes.to_i).
-    where(approved: true, published: true, automatically_renew: true).
-    each do |article|
-
-    if article.automatically_renew
-      article.featured_number = Time.now.to_i
-    else
-      article.approved = false
-      article.body_markdown = article.body_markdown.gsub(
-        "published: true", "published: false"
-      )
-    end
-
-    article.save
+task expire_old_listings: :environment do
+  Listing.where("bumped_at < ?", 30.days.ago).each do |listing|
+    listing.update(published: false)
   end
-end
-
-task clear_memory_if_too_high: :environment do
-  if Rails.cache.stats.flatten[1]["bytes"].to_i > 2000000000
-    Rails.cache.clear
+  Listing.where("expires_at = ?", Time.zone.today).each do |listing|
+    listing.update(published: false)
   end
 end
 
 task save_nil_hotness_scores: :environment do
-  Article.where(hotness_score: nil, published: true).find_each(&:save)
+  Article.published.where(hotness_score: nil).find_each(&:save)
 end
 
 task github_repo_fetch_all: :environment do
@@ -67,11 +34,26 @@ task github_repo_fetch_all: :environment do
 end
 
 task send_email_digest: :environment do
-  return if Time.now.wday < 3
-  EmailDigest.send_periodic_digest_email
+  if Time.current.wday >= 3
+    EmailDigest.send_periodic_digest_email
+  end
 end
 
-task award_badges: :environment do
-  BadgeRewarder.award_yearly_club_badges
-  BadgeRewarder.award_beloved_comment_badges
+# This task is meant to be scheduled daily
+task prune_old_field_tests: :environment do
+  # For rolling ongoing experiemnts, we remove old experiment memberships
+  # So that they can be re-tested.
+  FieldTests::PruneOldExperimentsWorker.perform_async
+end
+
+task remove_old_html_variant_data: :environment do
+  HtmlVariantTrial.destroy_by("created_at < ?", 2.weeks.ago)
+  HtmlVariantSuccess.destroy_by("created_at < ?", 2.weeks.ago)
+  HtmlVariant.find_each do |html_variant|
+    html_variant.calculate_success_rate! if html_variant.html_variant_successes.any?
+  end
+end
+
+task fix_credits_count_cache: :environment do
+  Credit.counter_culture_fix_counts only: %i[user organization]
 end

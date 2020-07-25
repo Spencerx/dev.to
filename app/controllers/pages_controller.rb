@@ -1,43 +1,80 @@
 class PagesController < ApplicationController
   # No authorization required for entirely public controller
-  before_action :set_cache_control_headers, only: %i[rlyweb now events membership survey]
+  before_action :set_cache_control_headers, only: %i[show badge bounty faq robots]
 
-  def now
-    set_surrogate_key_header "now_page"
-  end
+  def show
+    @page = Page.find_by!(slug: params[:slug])
+    not_found unless FeatureFlag.accessible?(@page.feature_flag_name, current_user)
 
-  def survey
-    set_surrogate_key_header "survey_page"
+    set_surrogate_key_header "show-page-#{params[:slug]}"
+    render json: @page.body_json if @page.template == "json"
   end
 
   def about
+    @page = Page.find_by(slug: "about")
+    render :show if @page
     set_surrogate_key_header "about_page"
   end
 
-  def membership
-    flash[:notice] = ""
-    flash[:error] = ""
-    @members = members_for_display
-    set_surrogate_key_header "membership_page"
+  def about_listings
+    @page = Page.find_by(slug: "about-listings")
+    render :show if @page
+    set_surrogate_key_header "about_listings_page"
   end
 
-  def membership_form
-    render "membership_form", layout: false
+  def bounty
+    @page = Page.find_by(slug: "security")
+    render :show if @page
+    set_surrogate_key_header "bounty_page"
+  end
+
+  def community_moderation
+    @page = Page.find_by(slug: "community-moderation")
+    render :show if @page
+    set_surrogate_key_header "community_moderation_page"
+  end
+
+  def faq
+    @page = Page.find_by(slug: "faq")
+    render :show if @page
+    set_surrogate_key_header "faq_page"
+  end
+
+  def post_a_job
+    @page = Page.find_by(slug: "post-a-job")
+    render :show if @page
+    set_surrogate_key_header "post_a_job_page"
+  end
+
+  def tag_moderation
+    @page = Page.find_by(slug: "tag-moderation")
+    render :show if @page
+    set_surrogate_key_header "tag_moderation_page"
+  end
+
+  def badge
+    @html_variant = HtmlVariant.find_for_test([], "badge_landing_page")
+    render layout: false
+    set_surrogate_key_header "badge_page"
   end
 
   def report_abuse
+    referer = URL.sanitized_referer(request.referer)
+    reported_url = params[:reported_url] || params[:url] || referer
     @feedback_message = FeedbackMessage.new(
-      reported_url: params[:reported_url] || params[:url] || request.referrer,
+      reported_url: reported_url&.chomp("?i=i"),
     )
-    render "pages/report-abuse"
+    render "pages/report_abuse"
   end
 
-  def rlyweb
-    set_surrogate_key_header "rlyweb"
+  def robots
+    # dynamically-generated static page
+    respond_to :text
+    set_surrogate_key_header "robots_page"
   end
 
   def welcome
-    daily_thread = latest_published_welcome_thread
+    daily_thread = Article.admin_published_with("welcome").first
     if daily_thread
       redirect_to daily_thread.path
     else
@@ -46,30 +83,33 @@ class PagesController < ApplicationController
     end
   end
 
-  def live
-    @active_channel = ChatChannel.find_by_channel_name("Workshop")
-    @chat_channels = [@active_channel].to_json(
-      only: %i[channel_name channel_type last_message_at slug status id],
-    )
-  end
-
-  private # helpers
-
-  def latest_published_welcome_thread
-    Article.where(user_id: ApplicationConfig["DEVTO_USER_ID"], published: true).
-      tagged_with("welcome").last
-  end
-
-  def members_for_display
-    Rails.cache.fetch("members-for-display-on-membership-page", expires_in: 6.hours) do
-      members = User.with_any_role(:level_1_member,
-                                  :level_2_member,
-                                  :level_3_member,
-                                  :level_4_member,
-                                  :triple_unicorn_member,
-                                  :workshop_pass)
-      team_ids = [1, 264, 6, 3, 31047, 510, 560, 1075, 48943, 13962]
-      members.reject { |user| team_ids.include?(user.id) }.shuffle
+  def challenge
+    daily_thread = Article.admin_published_with("challenge").first
+    if daily_thread
+      redirect_to daily_thread.path
+    else
+      redirect_to "/notifications"
     end
+  end
+
+  def checkin
+    daily_thread =
+      Article
+        .published
+        .where(user: User.find_by(username: "codenewbiestaff"))
+        .order("articles.published_at" => :desc)
+        .first
+
+    if daily_thread
+      redirect_to daily_thread.path
+    else
+      redirect_to "/notifications"
+    end
+  end
+
+  def crayons
+    @page = Page.find_by(slug: "crayons")
+    render :show if @page
+    set_surrogate_key_header "crayons_page"
   end
 end

@@ -1,85 +1,75 @@
-<% accent_color = HexComparer.new([@tag.bg_color_hex,@tag.text_color_hex]).biggest %>
-<% color = HexComparer.new([@tag.bg_color_hex,@tag.text_color_hex]).brightness(1.4) %>
-<% dark_color = HexComparer.new([@tag.bg_color_hex,@tag.text_color_hex]).brightness(0.7) %>
+<% accent_color = HexComparer.new([@tag.bg_color_hex, @tag.text_color_hex]).biggest %>
+<% color = HexComparer.new([@tag.bg_color_hex, @tag.text_color_hex]).brightness(1.4) %>
+<% dark_color = HexComparer.new([@tag.bg_color_hex, @tag.text_color_hex]).brightness(0.7) %>
+<% not_so_rand = Random.new(@tag.id) # Using ID as seed ensures we get the same "random" numbers on each page load, Improves caching %>
 <style>
-  body{
+  body {
     background: white;
-    margin:0;
-    padding:0;
+    margin: 0;
+    padding: 0;
   }
-  .preview-div-wrapper{
+
+  .preview-div-wrapper {
     overflow: hidden;
-    position:relative;
-  }
-  .circle{
-    border-radius: 1000px;
+    position: relative;
     background: <%= accent_color %>;
-    position: absolute;
   }
-  .circle1{
-    height: 40vw;
-    width: 40vw;
-    right: -<%= rand(2..15) %>vw;
-    bottom: -<%= rand(2..15) %>vw;
-  }
-  .circle2{
-    height: 30vw;
-    width: 30vw;
-    left: <%= rand(2..16) %>vw;
-    bottom: 0vw;
-  }
-  .circle3{
-    height: 24vw;
-    width: 24vw;
-    left: -8vw;
-    top: -<%= rand(2..6) %>vw;
-  }
-  .preview-div{
+
+  .preview-div {
     background: #fff;
-    border: 0.25vw solid <%= dark_color %>;
+    border: 0.25vw solid<%= dark_color %>;
     box-shadow: 0.8vw 1vw 0px <%= dark_color %>;
-    width: 88vw;
-    height: 44vw;
-    margin: 2.5vw auto 5vw;
+    width: 94vw;
+    height: 45vw;
+    margin: 2.25vw auto 5vw;
     overflow: hidden;
-    position:relative;
+    position: relative;
+    border-radius: 0.3vw;
+    border-top-left-radius: 2.3vw;
+    border-top-right-radius: 2.3vw;
   }
-  h1{
+
+  h1 {
     color: <%= dark_color %>;
     width: 92%;
     margin: 10vw auto 0vw;
-    font-family: "Helvetica Neue", Helvetica, Arial, "Lucida Grande", sans-serif;
-    font-size: 12vw;
+    font-family: "Helvetica Neue", Helvetica, Arial, "Lucida Grande", "Roboto", sans-serif;
+    font-size: <%= @tag.name.size > 10 ? "9.8" : "12" %>vw;
   }
-  h1 img{
+
+  h1 img {
     border-radius: 100vw;
     height: 15vw;
     width: 15vw;
     vertical-align: -4.3vw;
-    border: 0.55vw solid <%= dark_color %>;
+    border: 0.55vw solid<%= dark_color %>;
   }
-  h2{
+
+  h2 {
     color: black;
     width: 92%;
     margin: 0vw auto 1vw;
     font-family: "Helvetica Neue", Helvetica, Arial, "Lucida Grande", sans-serif;
     font-size: 6vw;
   }
-  .preview-dev-logo{
-    position:absolute;
-    bottom: 2.1vw;
-    right: 2.1vw;
-    text-align:right;
+
+  .badge-images {
+    position: absolute;
+    bottom: 1.4vw;
+    right: 1.5vw;
+    text-align: right;
   }
-  .logo{
-    height:6vw;
+
+  .badge-images img {
+    height: 6vw;
+    right: 6vw;
     fill: <%= dark_color %>;
+    margin-left: 0.5vw;
+    transform: rotate(5deg);
   }
+
 </style>
 <div class="preview-div-wrapper">
-  <div class="circle circle1"></div>
-  <div class="circle circle2"></div>
-  <div class="circle circle3"></div>
   <div class="preview-div">
     <h1>
       #<%= @tag.name %>
@@ -89,8 +79,15 @@
         <%= @tag.pretty_name %>
       </h2>
     <% end %>
-    <div class="preview-dev-logo">
-      <%= inline_svg("devplain.svg", class: "logo", size: '9vw * 9vw') %>
+    <div class="badge-images">
+      <% if @tag.badge_id %>
+        <%# Use a seed in Random so we don't break cache on every render %>
+        <% @badge = Badge.find(@tag.badge_id) %>
+        <% not_so_rand = Random.new(@badge.id) %>
+        <img src="<%= @badge.badge_image_url %>" style="transform: rotate(<%= not_so_rand.rand(-6..6) %>deg);" />
+      <% end %>
+      <img src="https://thepracticaldev.s3.amazonaws.com/i/bh2wmpcltaybu1xsnico.png" />
     </div>
+  </div>
   </div>
 </div>

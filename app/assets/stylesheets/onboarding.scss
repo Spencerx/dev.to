@@ -1,41 +1,75 @@
 @import 'variables';
-.onboarding-container{
-  padding-top:calc(5% + 50px);
-  text-align:center;
-  min-height:550px;
-  font-family: $helvetica;
-  h2{
-    font-weight:300;
+@import 'mixins';
+@import 'config/import';
+
+.onboarding-task-card {
+  background: var(--accent-brand);
+  position: relative;
+  border-radius: var(--radius);
+  padding: var(--su-7) var(--su-8) var(--su-8) var(--su-8);
+  display: none;
+
+  .task-card-title {
+    font-weight: var(--fw-heavy);
+    font-size: var(--fs-4xl);
+    line-height: var(--lh-tight);
+    color: var(--base-inverted);
   }
-  form{
-    width:98%;
-    max-width:500px;
-    margin:auto;
-    input, textarea{
-      width:80%;
-      padding:10px;
-      border:1px solid $light-medium-gray;
-      display:block;
-      margin:5px auto;
-      border-radius:2px;
-      font-size:20px;
 
-      &[type=submit]{
-        background:$blue;
-        border:1px solid darken($blue,4%);
-        color:white;
-        width:calc(80% + 22px);
-        cursor:pointer;
-        &:hover{
-          opacity:0.92;
-        }
+  .task-card-subtitle {
+    color: var(--base-inverted);
+    opacity: 0.7;
+    font-weight: var(--fw-medium);
+    font-size: var(--fs-s);
+    line-height: var(--lh-tight);
+    letter-spacing: -0.02em;
+  }
 
-      }
+  .task-card-action {
+    border-radius: var(--radius);
+    // Can't use hex + opacity because it will affect text.
+    background-color: rgba(255, 255, 255, 0.2);
+
+    &:hover {
+      background-color: rgba(255, 255, 255, 0.3);
     }
-    textarea{
-      resize:none;
-      font-size:17px;
-      height:80px;
+  }
+
+  a.task-card-link {
+    display: block;
+    border-radius: var(--radius);
+    padding: var(--su-5) var(--su-5);
+    margin-top: var(--su-4);
+    font-weight: var(--fw-bold);
+    font-size: var(--fs-base);
+    line-height: var(--lh-base);
+    letter-spacing: -0.02em;
+    color: var(--base-inverted);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+
+    &:hover {
+      cursor: pointer;
     }
+
+    .emoji {
+      margin-right: var(--su-2);
+    }
+  }
+
+  .task-card-image {
+    width: 100px;
+    height: 100px;
+  }
+
+  .close {
+    // Overide standard button layout
+    background: none;
+    border: none;
+
+    position: absolute;
+    top: var(--su-6);
+    right: var(--su-6);
   }
 }

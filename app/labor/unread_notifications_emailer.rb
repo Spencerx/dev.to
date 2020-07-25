@@ -5,13 +5,11 @@ class UnreadNotificationsEmailer
     # This will run once a day (defined outside the app)
     # only to users who have made at least one comment or article.
     # We can change this up later.
-    users = User.where("comments_count > ? OR reactions_count > ?", 0, 0).order("RANDOM()").limit(num)
+    users = User.where("comments_count > ? OR reactions_count > ?", 0, 0).order(Arel.sql("RANDOM()")).limit(num)
     users.find_each do |user|
       UnreadNotificationsEmailer.new(user).send_email_if_appropriate
     rescue StandardError => e
-      logger = Logger.new(STDOUT)
-      logger = Airbrake::AirbrakeLogger.new(logger)
-      logger.error(e)
+      Honeybadger.notify(e)
     end
   end
 
@@ -20,37 +18,22 @@ class UnreadNotificationsEmailer
   end
 
   def send_email_if_appropriate
-    if should_send_email?
-      send_email
-    end
+    send_email if should_send_email?
   end
 
   def should_send_email?
-    return false if !user.email_unread_notifications
+    return false unless user.email_unread_notifications
     return false if last_email_sent_after(24.hours.ago)
-    emailable_notifications_count = 0
-    user_activities.each do |activity|
-      emailable_notifications_count += 1 if proper_activity(activity)
-    end
+
+    emailable_notifications_count = user.notifications.where(read: false).where.not(notifiable_type: "Reaction").count
     emailable_notifications_count > rand(1..6)
   end
 
-  def user_activities
-    return [] if Rails.env.test?
-    feed = StreamRails.feed_manager.get_notification_feed(user.id)
-    results = feed.get["results"]
-    StreamRails::Enrich.new.enrich_aggregated_activities(results)
-  end
-
   def send_email
-    NotifyMailer.unread_notifications_email(user).deliver
+    NotifyMailer.with(user: user).unread_notifications_email.deliver_now
   end
 
   private
-
-  def proper_activity(activity)
-    activity["verb"] != "Reaction" && activity["is_seen"] == false
-  end
 
   def last_email_sent_after(time)
     last_email = user.email_messages.last

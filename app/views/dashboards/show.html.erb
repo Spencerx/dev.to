@@ -1,104 +1,77 @@
-<% title "Dashboard - DEV" %>
+<% title "Dashboard" %>
 
-<div class="dashboard-container">
-  <div class="actions">
-    <a class="action <%= 'active' if params[:which] == "organization" || params[:which].blank? %>" href="/dashboard">POSTS (<%= @user.articles_count %>)</a>
-    <a class="action <%= 'active' if params[:which] == "user_followers" %>" href="/dashboard/user_followers">FOLLOWERS (<%= @user.followers_count %>)</a>
-    <a class="action <%= 'active' if params[:which] == "following_users" %>" href="/dashboard/following_users">FOLLOWING (<%= @user.following_users_count %>)</a>
-  </div>
-<% if @user.org_admin && @user.organization %>
-  <h1>
-    <a href="/dashboard" class=<%= "active" if params[:which].blank? %>>MY POSTS</a>
-    <a href="/dashboard/organization" class=<%= "active" if params[:which] == "organization" %>><%= @user.organization.name.upcase %> POSTS</a>
-  </h1>
-<% end %>
-  <% if @user.org_admin && @user.organization && params[:which] == "organization" %>
-      <% if current_user.can_view_analytics? %>
-        <div class="dashboard-analytics-header" id="dashboard-analytics-header">
-          <img src="<%= asset_path('bar-chart-white.svg') %>" /><span id="dashboard-analytics">...</span>
+<main>
+  <header class="crayons-layout">
+    <h1 class="p-2 pb-0 m:p-0">Dashboard</h1>
+    <%= render "actions_mobile" %>
+    <%= render "analytics" %>
+  </header>
+
+  <div class="crayons-layout crayons-layout--2-cols">
+    <aside class="crayons-layout__sidebar-left">
+      <%= render "actions" %>
+    </aside>
+
+    <div class="crayons-layout__content flex flex-col">
+      <div class="flex items-center justify-between mb-3">
+        <h2 class="hidden m:block fs-l fw-heavy">Posts</h2>
+
+        <div class="flex flex-wrap">
+          <% if params[:which] != "organization" %>
+            <% if @articles.any?(&:archived) %>
+              <%= link_to "Show archived", "javascript:;", id: "toggleArchivedLink", class: "crayons-btn crayons-btn--outlined ml-2 whitespace-nowrap my-1" %>
+            <% end %>
+            <% if @articles.any? %>
+              <%= select_tag "dashboard_sort", options_for_select(sort_options, params[:sort]), 'aria-label': "Sort By", class: "crayons-select w-auto ml-2 my-1" %>
+            <% end %>
+          <% end %>
+
+          <% if @organizations && @organizations.size > 0 && (params[:which].blank? || params[:which] == "organization") %>
+            <select id="dashboard_author" class="crayons-select w-auto ml-2 my-1">
+              <option value="/dashboard" <%= "selected" if params[:which].blank? %>>Personal</option>
+              <% @organizations.each do |org| %>
+                <option value="/dashboard/organization/<%= org.id %>" <%= "selected" if params[:org_id].to_i == org.id %>><%= org.name %> (<%= org.articles_count %>)</option>
+              <% end %>
+            </select>
+          <% end %>
         </div>
-      <% end %>
-      <% @articles.each do |article| %>
-        <div class="single-article">
-          <a href="<%= article.current_state_path %>"><h2><%= article.title %></h2></a>
+      </div>
+
+      <% if @articles.any? %>
+        <div class="crayons-card mb-6">
+          <% @articles.each do |article| %>
+            <% if params[:which] == "organization" %>
+              <%= render "dashboard_article_row", article: article, organization: article.organization, org_admin: true, manage_view: false %>
+            <% else %>
+              <%= render "dashboard_article_row", article: article, organization: nil, org_admin: false, manage_view: false %>
+            <% end %>
+          <% end %>
+        </div>
+
+        <div class="mb-4 pl-3">
+          <%= paginate @articles, params: { i: nil } %>
+        </div>
+
+      <% else %>
+        <div class="p-6 m:p-9 crayons-card crayons-card--secondary align-center fs-l h-100 flex items-center justify-center flex-1">
           <div>
-            <% if !article.published %>
-              <span class="pill cta yellow">DRAFT</span>
+            <% if SiteConfig.mascot_image_url.present? %>
+              <%= image_tag(cl_image_path(SiteConfig.mascot_image_url,
+                                          type: "fetch",
+                                          width: 300,
+                                          crop: "imagga_scale",
+                                          quality: "auto",
+                                          flags: "progressive",
+                                          fetch_format: "auto",
+                                          sign_url: true),
+                                          class: "sloan mb-7",
+                                          alt: "#{SiteConfig.mascot_image_description}") %>
             <% end %>
-            <a href="<%= article.path %>/edit" class="pill cta green">EDIT</a>
-            <% if article.published && current_user.can_view_analytics? %>
-              <span id="pageviews-<%= article.id %>" class="cta pill dashboard-pageviews-indicator" data-analytics-pageviews data-article-id="<%= article.id %>">fetching stats...</span>
-            <% end %>
+            <p class="mb-6">This is where you can manage your posts, but you haven't written anything yet.</p>
+            <p><a href="/new" class="crayons-btn crayons-btn--l">Write your first post now</a></p>
           </div>
-          <%= form_for(article) do |f| %>
-            <input type="hidden" name="destination" value="/dashboard" />
-            AUTHOR: <%= f.select(:user_id, options_for_select(@user.organization.users.map {|x| [x.name, x.id] }, article.user_id )) %>
-            <%= f.submit "SUBMIT AUTHOR CHANGE", class:"cta pill black" %>
-          <% end %>
         </div>
       <% end %>
     </div>
-  <% elsif params[:which] == "user_followers" || params[:which] == "following_users" %>
-      <% @follows.each do |follow| %>
-      <% user = params[:which] == "user_followers" ? follow.follower : follow.followable %>
-      <div class="single-article">
-        <a href="<%= user.path %>" class="block-link">
-          <h2>
-            <img alt="<%= user.username %> profile image" src="<%= ProfileImage.new(user).get(60)%>" />
-            <%= user.name %>
-            <span class="dashboard-username">@<%= user.username %></a>
-          </h2>
-        </a>
-      </div>
-    <% end %>
-  <% elsif @articles.any? %>
-    <% if current_user.can_view_analytics? %>
-      <div class="dashboard-analytics-header" id="dashboard-analytics-header">
-        <img src="<%= asset_path('bar-chart-white.svg') %>" /><span id="dashboard-analytics">...</span>
-      </div>
-    <% end %>
-    <% if current_user.has_role?(:video_permission) %>
-      <a class="cta" style="display:block;text-align:center;font-size:1.8em;border-radius:3px;margin:20px auto;padding: 10px 20px; max-width: 400px;background:#4e57ef;color:white" href="/videos/new" data-no-instant>
-        Upload a Video (beta ❤️)
-      </a>
-    <% end %>
-    <% @articles.each do |article| %>
-      <div class="single-article">
-        <a href="<%= article.current_state_path %>">
-          <h2>
-            <%= article.title %>
-          </h2>
-        </a>
-        <div class="dashboard-actions">
-          <% if article.published %>
-            <a href="<%= article.path %>" class="cta pill">PUBLISHED</a>
-          <% else %>
-            <a href="<%= article.path %>?preview=<%= article.password %>" class="cta pill yellow">DRAFT</a>
-          <% end %>
-          <a href="<%= article.path %>/edit" class="cta pill green">EDIT</a>
-          <a href="<%= article.path %>/delete_confirm" data-no-instant class="cta pill black">DELETE</a>
-          <% if article.published && current_user.can_view_analytics? %>
-            <span id="pageviews-<%= article.id %>" class="cta pill dashboard-pageviews-indicator" data-analytics-pageviews data-article-id="<%= article.id %>">fetching stats...</span>
-          <% end %>
-        </div>  
-      </div>
-    <% end %>
-  <% else %>
-    <div class="no-articles">
-      <h3>This is where you can manage your posts, but you haven't written anything yet.</h3>
-      <a href="/new" class="cta big">
-        Write your first post now
-      </a>
-      <%=image_tag(cl_image_path(asset_path("/assets/sloan.png"),
-       :type=>"fetch",
-       :width => 300,
-       :crop => "imagga_scale",
-       :quality => "auto",
-       :flags => "progressive",
-       :fetch_format => "auto",
-       :sign_url => true), class:"sloan", alt:"sloth-mascot") %>
-       <br/>
-      <h3>Also check out the <a href="/welcome" data-no-instant>Welcome Thread</a> to introduce yourself!</h3>
-    </div>
-  <% end %>
-</div>
+  </div>
+</main>

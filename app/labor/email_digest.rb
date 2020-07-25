@@ -1,8 +1,3 @@
-# Usecase would be
-# EmailDigest.send_periodic_digest_email
-# OR
-# EmailDigets.send_periodic_digest_email(Users.first(4))
-
 class EmailDigest
   def self.send_periodic_digest_email(users = [])
     new(users).send_periodic_digest_email
@@ -16,11 +11,15 @@ class EmailDigest
     @users.find_each do |user|
       user_email_heuristic = EmailLogic.new(user).analyze
       next unless user_email_heuristic.should_receive_email?
+
       articles = user_email_heuristic.articles_to_send
       begin
-        DigestMailer.digest_email(user, articles).deliver
-      rescue StandardError
-        puts "Email issue"
+        next unless user.email_digest_periodic?
+
+        DigestMailer.with(user: user, articles: articles).digest_email.deliver_now
+      rescue StandardError => e
+        Honeybadger.context({ user_id: user.id, article_ids: articles.map(&:id) })
+        Honeybadger.notify(e)
       end
     end
   end
@@ -28,6 +27,6 @@ class EmailDigest
   private
 
   def get_users
-    User.where(email_digest_periodic: true)
+    User.registered.where(email_digest_periodic: true).where.not(email: "")
   end
 end

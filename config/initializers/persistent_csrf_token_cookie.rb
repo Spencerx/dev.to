@@ -1,5 +1,3 @@
-# config/initializers/monkey_patches/persistent_csrf_token_cookie.rb
-#
 # Workaround for CSRF protection bug.
 #
 # https://github.com/rails/rails/issues/21948
@@ -21,7 +19,7 @@ module ActionController
       cookies.encrypted[COOKIE_NAME] ||= {
         value: csrf_token,
         expires: 1.year.from_now,
-        httponly: true,
+        httponly: true
       }
       session[:_csrf_token] = csrf_token
       Base64.strict_decode64(csrf_token)
@@ -34,7 +32,7 @@ end
 Warden::Manager.after_authentication do |_record, warden, _options|
   clean_up_for_winning_strategy = !warden.winning_strategy.respond_to?(:clean_up_csrf?) ||
     warden.winning_strategy.clean_up_csrf?
-  if Devise.clean_up_csrf_token_on_authentication && clean_up_for_winning_strategy
-    warden.cookies.delete(ActionController::RequestForgeryProtection::COOKIE_NAME)
-  end
+
+  delete_cookie = Devise.clean_up_csrf_token_on_authentication && clean_up_for_winning_strategy
+  warden.cookies.delete(ActionController::RequestForgeryProtection::COOKIE_NAME) if delete_cookie
 end

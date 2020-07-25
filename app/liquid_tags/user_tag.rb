@@ -1,83 +1,39 @@
 class UserTag < LiquidTagBase
   include ApplicationHelper
-  attr_reader :user
+  include ActionView::Helpers::TagHelper
+  PARTIAL = "users/liquid".freeze
 
-  def initialize(_tag_name, user, _tokens)
-    @user = parse_username_to_user(user)
+  def initialize(_tag_name, user, _parse_context)
+    super
+    @user = parse_username_to_user(user.delete(" "))
+    @follow_button = follow_button(@user)
+    @user_colors = user_colors(@user)
   end
 
   def render(_context)
-    # looks like link liquid tag
-    <<-HTML
-    <div class="ltag__user ltag__user__id__#{@user.id}" style="border-color:#{@user.decorate.darker_color};box-shadow: 3px 3px 0px #{@user.decorate.darker_color}">
-      <style>
-        .ltag__user__id__#{@user.id} .follow-action-button{
-          background-color: #{user_colors(@user)[:bg]} !important;
-          color: #{user_colors(@user)[:text]} !important;
-          border-color: #{user_colors(@user)[:bg].casecmp('#ffffff').zero? ? user_colors(@user)[:text] : user_colors(@user)[:bg]} !important;
-        }
-      </style>
-      <a href="/#{@user.username}" class="ltag__user__link profile-image-link">
-        <div class="ltag__user__pic">
-          <img src="#{ProfileImage.new(@user).get(150)}" alt="#{@user.username} image"/>
-        </div>
-      </a>
-        <div class="ltag__user__content">
-          <h2><a href="#{@user.path}" class="ltag__user__link">#{@user.name}</a> #{follow_button(@user)}</h2>
-          <div class="ltag__user__summary">
-            <a href="/#{@user.username}" class="ltag__user__link">
-              #{@user.summary}
-            </a>
-          </div>
-        </div>
-    </div>
-    HTML
+    ActionController::Base.new.render_to_string(
+      partial: PARTIAL,
+      locals: {
+        user: user_object_for_partial(@user),
+        follow_button: @follow_button,
+        user_colors: @user_colors,
+        user_path: path_to_profile(@user)
+      },
+    )
   end
 
   private
 
-  def accent_color
-    HexComparer.new([ApplicationController.helpers.user_colors(@user)[:bg]]).accent
+  def parse_username_to_user(user)
+    User.find_by(username: user, registered: true) || DELETED_USER
   end
 
-  def parse_username_to_user(input)
-    input_no_space = input.delete(" ")
-    user = User.find_by_username(input_no_space)
-    if user.nil?
-      raise StandardError, "invalid username"
-    else
-      user
-    end
+  def path_to_profile(user)
+    user == DELETED_USER ? nil : user.path
   end
 
-  def twitter_link
-    if @user.twitter_username.present?
-      <<-HTML
-      <a href="http://twitter.com/#{@user.twitter_username}" target="_blank" rel="noopener">
-        #{image_tag('/assets/twitter-logo.svg', class: 'icon-img', alt: 'twitter')} #{@user.twitter_username}
-      </a>
-      HTML
-    end
-  end
-
-  def github_link
-    if @user.github_username.present?
-      <<-HTML
-      <a href="http://github.com/#{@user.github_username}" target="_blank" rel="noopener">
-        #{image_tag('/assets/github-logo.svg', class: 'icon-img', alt: 'github')} #{@user.github_username}
-      </a>
-      HTML
-    end
-  end
-
-  def website_link
-    if @user.website_url.present?
-      <<-HTML
-      <a href="#{@user.website_url}" target="_blank" rel="noopener">
-        #{image_tag('/assets/link.svg', class: 'icon-img', alt: 'website link')} #{beautified_url(@user.website_url)}
-      </a>
-      HTML
-    end
+  def user_object_for_partial(user)
+    user == DELETED_USER ? user : user.decorate
   end
 end
 

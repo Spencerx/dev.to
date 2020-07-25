@@ -1,92 +1,118 @@
 class ArticleApiIndexService
-  attr_accessor :tag, :username, :page, :state
+  DEFAULT_PER_PAGE = 30
+  MAX_PER_PAGE = 1000
+
   def initialize(params)
-    @page =     params[:page]
-    @tag =      params[:tag]
+    @page = params[:page]
+    @tag = params[:tag]
     @username = params[:username]
     @state = params[:state]
+    @top = params[:top]
+    @collection_id = params[:collection_id]
+    @per_page = params[:per_page]
   end
 
   def get
-    articles = if tag.present?
-                 tag_articles
-               elsif username.present?
-                 username_articles
-               elsif state.present?
-                 state_articles(state)
-               else
-                 base_articles
-                end
-    articles.
-      decorate
+    if tag.present?
+      tag_articles
+    elsif username.present?
+      username_articles
+    elsif state.present?
+      state_articles(state)
+    elsif top.present?
+      top_articles
+    elsif collection_id.present?
+      collection_articles(collection_id)
+    else
+      base_articles
+    end
   end
 
   private
 
+  attr_reader :tag, :username, :page, :state, :top, :collection_id, :per_page
+
   def username_articles
     num = if @state == "all"
-            1000
+            MAX_PER_PAGE
           else
-            30
+            DEFAULT_PER_PAGE
           end
-    if user = User.find_by_username(username)
-      user.articles.
-        where(published: true).
-        includes(:user).
-        order("published_at DESC").
-        page(page).
-        per(num)
-    elsif organization = Organization.find_by_slug(username)
-      organization.articles.
-        where(published: true).
-        includes(:user).
-        order("published_at DESC").
-        page(page).
-        per(num)
+
+    if (user = User.find_by(username: username))
+      user.articles.published
+        .includes(:organization)
+        .order(published_at: :desc)
+        .page(page)
+        .per(per_page || num)
+    elsif (organization = Organization.find_by(slug: username))
+      organization.articles.published
+        .includes(:user)
+        .order(published_at: :desc)
+        .page(page)
+        .per(per_page || num)
     else
-      not_found
+      Article.none
     end
   end
 
   def tag_articles
-    if Tag.find_by_name(tag)&.requires_approval
-      Article.
-        where(published: true, approved: true).
-        order("featured_number DESC").
-        includes(:user).
-        includes(:organization).
-        page(page).
-        per(30).
-        filter_excluded_tags(tag)
-    else
-      Article.
-        where(published: true).
-        order("hotness_score DESC").
-        includes(:user).
-        includes(:organization).
-        page(page).
-        per(30).
-        filter_excluded_tags(tag)
-    end
+    articles = Article.published.cached_tagged_with(tag).includes(:user, :organization)
+
+    articles = if Tag.find_by(name: tag)&.requires_approval
+                 articles.where(approved: true).order(featured_number: :desc)
+               elsif top.present?
+                 articles.where("published_at > ?", top.to_i.days.ago)
+                   .order(public_reactions_count: :desc)
+               else
+                 articles.order(hotness_score: :desc)
+               end
+
+    articles.page(page).per(per_page || DEFAULT_PER_PAGE)
+  end
+
+  def top_articles
+    Article.published.includes(:user, :organization)
+      .where("published_at > ?", top.to_i.days.ago)
+      .order(public_reactions_count: :desc)
+      .page(page).per(per_page || DEFAULT_PER_PAGE)
   end
 
   def state_articles(state)
-    if state == "fresh"
-      Article.where(published: true).
-        where("positive_reactions_count < ? AND featured_number > ?", 5, 7.hours.ago.to_i)
-    elsif state == "rising"
-      Article.where(published: true).
-        where("positive_reactions_count > ? AND positive_reactions_count < ? AND featured_number > ?", 19, 27, 3.days.ago.to_i)
-    end
+    articles = Article.published.includes(:user, :organization)
+
+    articles = case state
+               when "fresh"
+                 articles.where(
+                   "public_reactions_count < ? AND featured_number > ? AND score > ?", 2, 7.hours.ago.to_i, -2
+                 )
+               when "rising"
+                 articles.where(
+                   "public_reactions_count > ? AND public_reactions_count < ? AND featured_number > ?",
+                   19, 33, 3.days.ago.to_i
+                 )
+               else
+                 Article.none
+               end
+
+    articles.page(page).per(per_page || DEFAULT_PER_PAGE)
+  end
+
+  def collection_articles(collection_id)
+    Article.published
+      .where(collection_id: collection_id)
+      .includes(:user, :organization)
+      .order(:published_at)
+      .page(page)
+      .per(per_page || DEFAULT_PER_PAGE)
   end
 
   def base_articles
-    Article.
-      where(published: true, featured: true).
-      order("hotness_score DESC").
-      includes(:user).
-      includes(:organization).
-      page(page).
-      per(30)
+    Article.published
+      .where(featured: true)
+      .includes(:user, :organization)
+      .order(hotness_score: :desc)
+      .page(page)
+      .per(per_page || DEFAULT_PER_PAGE)
   end
 end

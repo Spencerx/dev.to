@@ -1,8 +1,8 @@
 require "rails_helper"
 
-RSpec.describe ReplitTag, type: :liquid_template do
+RSpec.describe ReplitTag, type: :liquid_tag do
   describe "#id" do
-    let(:replit_id) { "dQw4w9WgXcQ" }
+    let(:replit_id) { "@WigWog/PositiveFineOpensource" }
 
     def generate_new_liquid(id)
       Liquid::Template.register_tag("replit", ReplitTag)

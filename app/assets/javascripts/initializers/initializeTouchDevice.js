@@ -1,25 +1,55 @@
-
-function initializeTouchDevice() {
-  var isTouchDevice = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-  setTimeout(function(){
-    removeShowingMenu();
-    if (isTouchDevice) {
-      document.getElementById("navigation-butt").onclick = function(e){
-        document.getElementById("navbar-menu-wrapper").classList.toggle('showing');
-      }
-    } else {
-      document.getElementById("navbar-menu-wrapper").classList.add('desktop')
-    }
-  },10)
+function getById(className) {
+  return document.getElementById(className);
+}
+function getClassList(className) {
+  return getById(className).classList;
 }
 
+function blur(event, className) {
+  setTimeout(() => {
+    if (document.activeElement !== getById(className)) {
+      getClassList('top-bar__menu').remove('showing');
+    }
+  }, 10);
+}
 
-function removeShowingMenu() {  
-  document.getElementById("navbar-menu-wrapper").classList.remove('showing')
-  setTimeout(function(){
-    document.getElementById("navbar-menu-wrapper").classList.remove('showing')
-  },5)
-  setTimeout(function(){
-    document.getElementById("navbar-menu-wrapper").classList.remove('showing')
-  },150)
+function removeShowingMenu() {
+  getClassList('top-bar__menu').remove('showing');
+  setTimeout(() => {
+    getClassList('top-bar__menu').remove('showing');
+  }, 5);
+  setTimeout(() => {
+    getClassList('top-bar__menu').remove('showing');
+  }, 150);
+}
+
+function toggleMenu() {
+  getClassList('top-bar__menu').toggle('showing');
+}
+
+function initializeTouchDevice() {
+  var isTouchDevice = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini|DEV-Native-ios/i.test(
+    navigator.userAgent,
+  );
+  if (navigator.userAgent === 'DEV-Native-ios') {
+    document.body.classList.add('dev-ios-native-body');
+  }
+  setTimeout(() => {
+    removeShowingMenu();
+    if (isTouchDevice) {
+      // Use a named function instead of anonymous so duplicate event handlers are discarded
+      getById('navigation-butt').addEventListener('click', toggleMenu);
+    } else {
+      getClassList('top-bar__menu').add('desktop');
+      getById('navigation-butt').addEventListener('focus', (e) =>
+        getClassList('top-bar__menu').add('showing'),
+      );
+      getById('last-nav-link').addEventListener('blur', (e) =>
+        blur(e, 'second-last-nav-link'),
+      );
+      getById('navigation-butt').addEventListener('blur', (e) =>
+        blur(e, 'first-nav-link'),
+      );
+    }
+  }, 10);
 }

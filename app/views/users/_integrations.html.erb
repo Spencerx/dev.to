@@ -1,33 +1,34 @@
-<h3>Pin a few of your GitHub repos to your profile</h3>
-<% if @client %>
-  <div class="github-repos">
-    <% @client.repositories.each do |repo| %>
-      <% if (user_repo = GithubRepo.find_by(github_id_code: repo.id)) && user_repo.featured %>
-        <div class="github-repo-row github-repo-row-selected">
-          <div class="github-repo-row-name">
-            <%= repo.name %> <%= "<span class='github-repo-fork'>fork</span>".html_safe if repo.fork %>
-            <%= form_for(user_repo) do |f| %>
-              <button class="cta">Remove</button>
-            <% end %>
-          </div>
-        </div>
-      <% else %>
-        <div class="github-repo-row">
-            <div class="github-repo-row-name">
-              <%= repo.name %> <%= "<span class='github-repo-fork'>fork</span>".html_safe if repo.fork %>
-              <%= form_for(GithubRepo.new) do |f| %>
-                <%= f.hidden_field :github_id_code, value: repo.id %>
-                <button class="cta">Select</button>
-              <% end %>
-            </div>
-        </div>
-      <% end %>
+<%= render partial: "users/integrations_github_repositories", locals: { show_integration: @github_repositories_show } %>
+
+<div class="crayons-card grid gap-6 p-6 mb-6">
+  <h3>Generate a personal blog from your <%= community_name %> posts</h3>
+  <div class="single-app-integration">
+    <% if current_user.decorate.stackbit_integration? %>
+      <h3>Connected to Stackbit <sup>beta</sup><img width="20px" style="margin-left:2px;" src="<%= asset_path("checkmark-green.svg") %>" /></h3>
+      <p style="font-size: 1.1em"><strong><a href="https://app.stackbit.com/dashboard">Go To Your Stackbit Dashboard</a></strong></p>
+      <p style="font-size: 1.1em"><strong><a href="https://app.stackbit.com/create?ref=devto">Create New Stackbit Site</a></strong></p>
+    <% else %>
+      <h3>Connect to Stackbit <span class="crayons-indicator crayons-indicator--accent">beta</span></h3>
+      <p>Automatically generate a self-hosted static blog feed from your <%= community_name %> posts.</p>
+      <p style="font-size: 1.1em"><strong><a href="/connecting-with-stackbit">Get Started</a></strong></p>
     <% end %>
   </div>
-<% else %>
-  <div class="field">
-    <a href="/users/auth/github" class="big-button cta" data-no-instant>
-      <img src="<%= asset_path('github-logo.svg') %>" /> CONNECT GITHUB ACCOUNT
-    </a>
-  </div>
+</div>
+
+<% if false # removed since isn't fully working right now %>
+  <%= form_tag users_update_twitch_username_path, class: "crayons-card grid gap-6 p-6 mb-6" do |f| %>
+    <header class="grid gap-2">
+      <h3>Live Streaming <span class="crayons-indicator crayons-indicator--accent">beta</span></h3>
+      <p>Add your Twitch username, and then checkout <a href="/live/<%= @user.username %>">dev.to/live/<%= @user.username %></a>.</p>
+    </header>
+
+    <div class="crayons-notice crayons-notice--warning">It's a new thing we're trying out. Soon we'll be able to indicate when any community member is currently streaming.</div>
+
+    <div class="crayons-field">
+      <%= label_tag "user[twitch_username]", "Twitch Username", class: "crayons-field__label" %>
+      <%= text_field_tag "user[twitch_username]", @user.twitch_username, class: "crayons-textfield" %>
+    </div>
+
+    <div><button class="crayons-btn" type="submit">Submit</button></div>
+  <% end %>
 <% end %>

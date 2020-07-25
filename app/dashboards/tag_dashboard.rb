@@ -11,7 +11,6 @@ class TagDashboard < Administrate::BaseDashboard
     id: Field::Number,
     name: Field::String,
     supported: Field::Boolean,
-    tag_moderator_ids: TagModeratorsField,
     wiki_body_markdown: Field::Text,
     wiki_body_html: Field::Text,
     rules_markdown: Field::Text,
@@ -19,15 +18,14 @@ class TagDashboard < Administrate::BaseDashboard
     short_summary: Field::String,
     requires_approval: Field::Boolean,
     submission_template: Field::Text,
-    submission_rules_headsup: Field::String,
     pretty_name: Field::String,
     profile_image: CarrierwaveField,
     social_image: CarrierwaveField,
     bg_color_hex: Field::String,
     text_color_hex: Field::String,
-    alias_for: Field::String,
     keywords_for_search: Field::String,
     taggings_count: Field::Number,
+    buffer_profile_id_code: Field::String
   }.freeze
 
   # COLLECTION_ATTRIBUTES
@@ -39,7 +37,6 @@ class TagDashboard < Administrate::BaseDashboard
     id
     name
     supported
-    alias_for
     taggings_count
   ].freeze
 
@@ -49,8 +46,6 @@ class TagDashboard < Administrate::BaseDashboard
     id
     name
     supported
-    tag_moderator_ids
-    alias_for
     wiki_body_markdown
     wiki_body_html
     rules_markdown
@@ -58,13 +53,13 @@ class TagDashboard < Administrate::BaseDashboard
     short_summary
     requires_approval
     submission_template
-    submission_rules_headsup
     pretty_name
     profile_image
     social_image
     bg_color_hex
     text_color_hex
     keywords_for_search
+    buffer_profile_id_code
   ].freeze
 
   # FORM_ATTRIBUTES
@@ -73,20 +68,18 @@ class TagDashboard < Administrate::BaseDashboard
   FORM_ATTRIBUTES = %i[
     name
     supported
-    tag_moderator_ids
-    alias_for
     wiki_body_markdown
     rules_markdown
     short_summary
     requires_approval
     submission_template
-    submission_rules_headsup
     pretty_name
     profile_image
     social_image
     bg_color_hex
     text_color_hex
     keywords_for_search
+    buffer_profile_id_code
   ].freeze
 
   # Overwrite this method to customize how tags are displayed

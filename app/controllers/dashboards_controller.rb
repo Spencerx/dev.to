@@ -1,25 +1,103 @@
 class DashboardsController < ApplicationController
   before_action :set_no_cache_header
   before_action :authenticate_user!
+  before_action :fetch_and_authorize_user, except: :pro
+  before_action :set_source, only: %i[subscriptions]
+  before_action -> { limit_per_page(default: 80, max: 1000) }, except: %i[show pro]
   after_action :verify_authorized
 
   def show
-    @user = if params[:username] && current_user.is_admin?
-              User.find_by_username(params[:username])
+    @current_user_pro = current_user.pro?
+
+    target = @user
+    not_authorized if params[:org_id] && !@user.org_admin?(params[:org_id] || @user.any_admin?)
+
+    @organizations = @user.admin_organizations
+
+    if params[:which] == "organization" && params[:org_id] && (@user.org_admin?(params[:org_id]) || @user.any_admin?)
+      target = @organizations.find_by(id: params[:org_id])
+      @organization = target
+      @articles = target.articles
+    else
+      # if the target is a user, we need to eager load the organization
+      @articles = target.articles.includes(:organization)
+    end
+
+    @reactions_count = @articles.sum(&:public_reactions_count)
+    @page_views_count = @articles.sum(&:page_views_count)
+
+    @articles = @articles.sorting(params[:sort]).decorate
+    @articles = Kaminari.paginate_array(@articles).page(params[:page]).per(50)
+
+    # Updates analytics in background if appropriate
+    update_analytics = @articles && SiteConfig.ga_fetch_rate < 50 # Rate limited, sometimes we throttle down
+    Articles::UpdateAnalyticsWorker.perform_async(current_user.id) if update_analytics
+  end
+
+  def following_tags
+    @followed_tags = @user.follows_by_type("ActsAsTaggableOn::Tag")
+      .order(points: :desc).includes(:followable).limit(@follows_limit)
+  end
+
+  def following_users
+    @follows = @user.follows_by_type("User")
+      .order(created_at: :desc).includes(:followable).limit(@follows_limit)
+  end
+
+  def following_organizations
+    @followed_organizations = @user.follows_by_type("Organization")
+      .order(created_at: :desc).includes(:followable).limit(@follows_limit)
+  end
+
+  def following_podcasts
+    @followed_podcasts = @user.follows_by_type("Podcast")
+      .order(created_at: :desc).includes(:followable).limit(@follows_limit)
+  end
+
+  def followers
+    @follows = Follow.followable_user(@user.id)
+      .includes(:follower).order(created_at: :desc).limit(@follows_limit)
+  end
+
+  def pro
+    @user_or_org = if params[:org_id]
+                     org = Organization.find_by(id: params[:org_id])
+                     authorize org, :pro_org_user?
+                     org
+                   else
+                     authorize current_user, :pro_user?
+                     current_user
+                   end
+    @organizations = current_user.member_organizations
+  end
+
+  def subscriptions
+    authorize @source
+    @subscriptions = @source.user_subscriptions
+      .includes(:subscriber).order(created_at: :desc).page(params[:page]).per(100)
+  end
+
+  private
+
+  def set_source
+    source_type = params[:source_type]
+    not_found unless UserSubscription::ALLOWED_TYPES.include? source_type
+
+    source = source_type.constantize.find_by(id: params[:source_id])
+    @source = source || not_found
+  end
+
+  def fetch_and_authorize_user
+    @user = if params[:username] && current_user.any_admin?
+              User.find_by(username: params[:username])
             else
               current_user
             end
     authorize (@user || User), :dashboard_show?
-    if params[:which] == "following_users"
-      @follows = @user.follows_by_type("User").
-        order("created_at DESC").includes(:followable).limit(80)
-    elsif params[:which] == "user_followers"
-      @follows = Follow.where(followable_id: @user.id, followable_type: "User").
-        includes(:follower).order("created_at DESC").limit(80)
-    elsif @user&.organization && @user&.org_admin && params[:which] == "organization"
-      @articles = @user.organization.articles.order("created_at DESC").decorate
-    elsif @user
-      @articles = @user.articles.order("created_at DESC").decorate
-    end
+  end
+
+  def limit_per_page(default:, max:)
+    per_page = (params[:per_page] || default).to_i
+    @follows_limit = [per_page, max].min
   end
 end

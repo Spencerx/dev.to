@@ -1,37 +1,95 @@
-<div class="article-actions" id="article-reaction-actions">
-  <% unless user_signed_in? %>
-    <div class="showpage-reaction-cta cta" id="showpage-reaction-cta">
-      Did you find this post useful? Show some love!
-      <div class="down-arrow"> </div>
-    </div>
-  <% end %>
-  <button id="reaction-butt-like" class="article-reaction-butt like-reaction-button" data-category="like" alt="heart-emoji" title="heart">
-    <img src="<%= asset_path("emoji/emoji-one-heart.png") %>" /><span class="reaction-number" id="reaction-number-like"></span>
-  </button>
-  <button id="reaction-butt-unicorn" class="article-reaction-butt unicorn-reaction-button" data-category="unicorn" alt="unicorn-emoji" title="unicorn">
-    <img src="<%= asset_path("emoji/emoji-one-unicorn.png") %>" /><span class="reaction-number" id="reaction-number-unicorn"></span>
-  </button>
-  <button id="reaction-butt-readinglist" class="article-reaction-butt readinglist-reaction-button" data-category="readinglist" alt="unicorn-emoji" title="reading list">
-    <img src="<%= asset_path("emoji/emoji-one-bookmark.png") %>" /><span class="reaction-number" id="reaction-number-readinglist"></span>
-  </button>
-  <div class="article-share-action-block">
-    <button id="article-show-more-button" class="dropbtn">
-      <img src="<%= asset_path("three-dots.svg") %>" class="dropdown-icon" />
-    </button>
-    <div class="dropdown-content">
-      <div>
-        <div class="dropdown-link-row">
-          <img src="<%= asset_path("link.svg") %>" /><input value="https://dev.to<%= @article.path %>" onClick="this.setSelectionRange(0, this.value.length)"/>
-        </div>
-        <div class="dropdown-link-row"><a href='https://twitter.com/intent/tweet?text="<%= @article.title %>" by <%= @article.user.twitter_username ? "@" + @article.user.twitter_username : @article.user.name %> https://dev.to<%= @article.path %>'>Share to Twitter</a></div>
-        <div class="dropdown-link-row"><a href="/report-abuse">Report Abuse</a></div>
+<div class="crayons-article-actions">
+  <div class="crayons-article-actions__inner">
+    <% if @article.published? %>
+
+      <%= render partial: "articles/reaction_button",
+                 locals: {
+                   category: :like,
+                   description: "Heart",
+                   image_path: "heart.svg",
+                   image_active_path: "heart-filled.svg"
+                 } %>
+      <%= render partial: "articles/reaction_button",
+                 locals: {
+                   category: :unicorn,
+                   description: "Unicorn",
+                   image_path: "unicorn.svg",
+                   image_active_path: "unicorn-filled.svg"
+                 } %>
+      <%= render partial: "articles/reaction_button",
+                 locals: {
+                   category: :readinglist,
+                   description: "Reading list",
+                   image_path: "save.svg",
+                   image_active_path: "save-filled.svg"
+                 } %>
+    <% end %>
+
+    <div class="align-center m:relative">
+      <button id="article-show-more-button" class="dropbtn crayons-btn crayons-btn--ghost crayons-btn--icon-rounded" aria-label="Toggle dropdown menu">
+        <%= inline_svg_tag("overflow-horizontal.svg", aria: true, class: "dropdown-icon crayons-icon", title: "More...") %>
+      </button>
+      <div class="crayons-dropdown p-1 z-30 right-1 left-1 s:left-auto bottom-100 m:bottom-0 m:right-auto m:left-100 fs-base">
+        <clipboard-copy for="article-copy-link-input" aria-live="polite" aria-controls="article-copy-link-announcer" class="dropdown-link-row">
+          <div class="flex items-center">
+            <input type="text" id="article-copy-link-input" value="<%= article_url(@article) %>" class="crayons-textfield" readonly />
+            <%= inline_svg_tag("copy.svg", aria: true, id: "article-copy-icon", class: "crayons-icon mx-2 shrink-0", title: "Notifications") %>
+          </div>
+          <div id="article-copy-link-announcer" role="alert" class="crayons-notice crayons-notice--success my-2 p-1" hidden>Copied to Clipboard</div>
+        </clipboard-copy>
+        <web-share-wrapper shareurl="<%= article_url(@article) %>" sharetext="<%= @article.title %>" template="web-share-button">
+          <a
+            target="_blank"
+            class="dropdown-link-row crayons-link crayons-link--block"
+            rel="noopener"
+            href='https://twitter.com/intent/tweet?text="<%= u @article.title.strip %>" by <%= @article.user.twitter_username ? "@#{@article.user.twitter_username}" : @article.user.name %> <%= u SiteConfig.twitter_hashtag %> <%= article_url(@article) %>'>
+            Share to Twitter
+          </a>
+          <a
+            target="_blank"
+            class="dropdown-link-row crayons-link crayons-link--block"
+            rel="noopener"
+            href="https://www.linkedin.com/shareArticle?mini=true&url=<%= article_url(@article) %>&title=<%= @article.title %>&summary=<%= @article.description %>&source=<%= community_name %>">
+            Share to LinkedIn
+          </a>
+          <a
+            target="_blank"
+            class="dropdown-link-row crayons-link crayons-link--block"
+            rel="noopener"
+            href="https://www.reddit.com/submit?url=<%= article_url(@article) %>&title=<%= @article.title %>">
+            Share to Reddit
+          </a>
+          <a
+            target="_blank"
+            class="dropdown-link-row crayons-link crayons-link--block"
+            rel="noopener"
+            href="https://news.ycombinator.com/submitlink?u=<%= article_url(@article) %>&t=<%= @article.title %>">
+            Share to Hacker News
+          </a>
+          <a
+            target="_blank"
+            class="dropdown-link-row crayons-link crayons-link--block"
+            rel="noopener"
+            href="https://www.facebook.com/sharer.php?u=<%= article_url(@article) %>">
+            Share to Facebook
+          </a>
+        </web-share-wrapper>
+        <template id="web-share-button">
+          <a href="#" class="dropdown-link-row crayons-link crayons-link--block">Share Post</a>
+        </template>
+        <a href="/report-abuse" class="dropdown-link-row crayons-link crayons-link--block">Report Abuse</a>
       </div>
     </div>
   </div>
 </div>
-<% unless user_signed_in? %>
-  <div class="showpage-signin-cta cta" id="showpage-signin-cta">
-    <a href="/">dev.to</a> is where software developers stay in the loop and avoid career stagnation.
-    <span style="display:block;margin-top:30px;"><a href="/enter" id="primary-cta-link" class="primary-cta-link">Signing up (for free!) is the first step.</a></span>
-  </div>
+
+<% if !user_signed_in? && @article.body_markdown.size > 900 %>
+  <% cache("below-article-html-variant-#{rand(20)}", expires_in: 8.hours) do %>
+    <% @html_variant = HtmlVariant.find_for_test(@article.cached_tag_list_array, "article_show_below_article_cta") %>
+    <% if @html_variant %>
+      <div class="html-variant-wrapper" id="html-variant-article-show-below-article" data-variant-id="<%= @html_variant.id %>">
+        <%= @html_variant.html.html_safe %>
+      </div>
+    <% end %>
+  <% end %>
 <% end %>

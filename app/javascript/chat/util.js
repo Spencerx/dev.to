@@ -1,35 +1,46 @@
-import 'intersection-observer';
-import { sendKeys } from './actions';
+import { fetchSearch } from '../utilities/search';
 
+import 'intersection-observer';
+
+export function getCsrfToken() {
+  const element = document.querySelector(`meta[name='csrf-token']`);
+
+  return element !== null ? element.content : undefined;
+}
+
+const getWaitOnUserDataHandler = ({ resolve, reject, waitTime = 20 }) => {
+  let totalTimeWaiting = 0;
+
+  return function waitingOnUserData() {
+    if (totalTimeWaiting === 3000) {
+      reject(new Error("Couldn't find user data on page."));
+      return;
+    }
+
+    const csrfToken = getCsrfToken(document);
+    const { user } = document.body.dataset;
+
+    if (user && csrfToken !== undefined) {
+      const currentUser = JSON.parse(user);
+
+      resolve({ currentUser, csrfToken });
+      return;
+    }
+
+    totalTimeWaiting += waitTime;
+    setTimeout(waitingOnUserData, waitTime);
+  };
+};
+
+export const getCurrentUser = () => {
+  const { user } = document.body.dataset;
+  return JSON.parse(user);
+};
 
 export function getUserDataAndCsrfToken() {
-  const promise = new Promise((resolve, reject) => {
-    let i = 0;
-    const waitingOnUserData = setInterval(() => {
-      let userData = null;
-      const dataUserAttribute = document.body.getAttribute('data-user');
-      const meta = document.querySelector("meta[name='csrf-token']");
-      if (
-        dataUserAttribute &&
-        dataUserAttribute !== 'undefined' &&
-        dataUserAttribute !== undefined &&
-        meta &&
-        meta.content !== 'undefined' &&
-        meta.content !== undefined
-      ) {
-        userData = JSON.parse(dataUserAttribute);
-      }
-      i += 1;
-      if (userData) {
-        clearInterval(waitingOnUserData);
-        resolve(userData);
-      } else if (i === 3000) {
-        clearInterval(waitingOnUserData);
-        reject(new Error("Couldn't find user data on page."));
-      }
-    }, 5);
+  return new Promise((resolve, reject) => {
+    getWaitOnUserDataHandler({ resolve, reject })();
   });
-  return promise;
 }
 
 export function scrollToBottom() {
@@ -48,7 +59,7 @@ export function setupObserver(callback) {
 export function hideMessages(messages, userId) {
   const cleanedMessages = Object.keys(messages).reduce(
     (accumulator, channelId) => {
-      const newMessages = messages[channelId].map(message => {
+      const newMessages = messages[channelId].map((message) => {
         if (message.user_id === userId) {
           const messageClone = Object.assign({ type: 'hidden' }, message);
           messageClone.message = '<message removed>';
@@ -76,39 +87,40 @@ export function adjustTimestamp(timestamp) {
   return time;
 }
 
+export const channelSorter = (channels, currentUserId, filterQuery) => {
+  const activeChannels = channels.filter(
+    (channel) =>
+      channel.viewable_by === currentUserId && channel.status === 'active',
+  );
+  const joiningChannels = channels.filter(
+    (channel) => channel.status === 'joining_request',
+  );
+  const ChannelIds = [
+    [...new Set(activeChannels.map((x) => x.chat_channel_id))],
+    [...new Set(joiningChannels.map((x) => x.chat_channel_id))],
+  ];
+  const discoverableChannels = channels
+    .filter(
+      (channel) =>
+        (channel.status === 'joining_request' && filterQuery) ||
+        (!ChannelIds[1].includes(channel.chat_channel_id) &&
+          channel.viewable_by !== currentUserId),
+    )
+    .filter((channel) => !ChannelIds[0].includes(channel.chat_channel_id));
+  return { activeChannels, discoverableChannels };
+};
 
-export function setupNotifications() {
-  navigator.serviceWorker.ready.then((serviceWorkerRegistration) => {
-    serviceWorkerRegistration.pushManager.getSubscription()
-      .then(function(subscription) {
-        if (subscription) {
-          return subscription;
-        }
-        return serviceWorkerRegistration.pushManager.subscribe({
-          userVisibleOnly: true,
-          applicationServerKey: window.vapidPublicKey
-        });
-      }).then(function(subscription) {
-        sendKeys(subscription.toJSON(), null, null)
-      });
-  });
-}
-
-export function getNotificationState() {
-  //Not yet ready
-  if (!window.location.href.includes('ask-for-notifications')){
-    return "dont-ask"
+export const createDataHash = (additionalFilters, searchParams) => {
+  const dataHash = {};
+  if (additionalFilters.filters) {
+    const [key, value] = additionalFilters.filters.split(':');
+    dataHash[key] = value;
   }
-
-  // Let's check if the browser supports notifications
-  if (!("Notification" in window)) {
-    return "not-supported"
-  }  else if (Notification.permission === "granted") {
-    setupNotifications();
-    return "granted"
-  }  else if (Notification.permission !== 'denied') {
-    return "waiting-permission"
-  } else {
-    return "denied"
+  dataHash.per_page = 30;
+  dataHash.page = searchParams.paginationNumber;
+  dataHash.channel_text = searchParams.query;
+  if (searchParams.searchType === 'discoverable') {
+    dataHash.user_id = 'all';
   }
-}
+  return fetchSearch('chat_channels', dataHash);
+};

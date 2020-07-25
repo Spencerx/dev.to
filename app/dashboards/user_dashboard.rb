@@ -8,44 +8,41 @@ class UserDashboard < Administrate::BaseDashboard
   # which determines how the attribute is displayed
   # on pages throughout the dashboard.
   ATTRIBUTE_TYPES = {
-    organization: Field::BelongsTo,
     id: Field::Number,
     name: Field::String,
     profile_image: CarrierwaveField,
     username: Field::String,
     twitter_username: Field::String,
     github_username: Field::String,
-    banned: UserBannedField,
-    reason_for_ban: ReasonForBanField,
-    warned: UserWarnedField,
-    reason_for_warning: ReasonForWarningField,
-    trusted: TrustedUserField,
-    scholar: UserScholarField,
-    analytics: UserAnalyticsField,
     summary: Field::String,
     email: Field::String,
     website_url: Field::String,
-    org_admin: Field::Boolean,
     created_at: Field::DateTime,
     updated_at: Field::DateTime,
     articles: Field::HasMany,
     comments: Field::HasMany,
-    sign_in_count: Field::Number,
     reputation_modifier: Field::Number,
     signup_cta_variant: Field::String,
     onboarding_package_requested: Field::Boolean,
-    onboarding_package_fulfilled: Field::Boolean,
-    onboarding_package_requested_again: Field::Boolean,
     twitter_followers_count: Field::Number,
     bg_color_hex: Field::String,
     text_color_hex: Field::String,
     feed_url: Field::String,
+    facebook_url: Field::String,
+    youtube_url: Field::String,
+    behance_url: Field::String,
+    dribbble_url: Field::String,
+    medium_url: Field::String,
+    gitlab_url: Field::String,
+    instagram_url: Field::String,
+    linkedin_url: Field::String,
+    twitch_url: Field::String,
     feed_admin_publish_permission: Field::Boolean,
     feed_mark_canonical: Field::Boolean,
     saw_onboarding: Field::Boolean,
     following_tags_count: Field::Number,
     monthly_dues: Field::Number,
-    stripe_id_code: Field::String,
+    stripe_id_code: Field::String
   }.freeze
 
   # COLLECTION_ATTRIBUTES
@@ -56,14 +53,10 @@ class UserDashboard < Administrate::BaseDashboard
   COLLECTION_ATTRIBUTES = %i[
     profile_image
     id
-    created_at
     username
-    name
     twitter_username
     github_username
-    following_tags_count
-    saw_onboarding
-    monthly_dues
+    name
   ].freeze
 
   # SHOW_PAGE_ATTRIBUTES
@@ -74,22 +67,22 @@ class UserDashboard < Administrate::BaseDashboard
   # an array of attributes that will be displayed
   # on the model's form (`new` and `edit`) pages.
   FORM_ATTRIBUTES = %i[
-    organization
     name
     username
     twitter_username
     github_username
     profile_image
-    org_admin
-    banned
-    reason_for_ban
-    warned
-    reason_for_warning
-    trusted
-    scholar
-    analytics
     summary
     website_url
+    facebook_url
+    youtube_url
+    behance_url
+    dribbble_url
+    medium_url
+    gitlab_url
+    instagram_url
+    linkedin_url
+    twitch_url
     bg_color_hex
     text_color_hex
     reputation_modifier
@@ -100,7 +93,7 @@ class UserDashboard < Administrate::BaseDashboard
   # Overwrite this method to customize how users are displayed
   # across all pages of the admin dashboard.
   #
-  # def display_resource(user)
-  #   user.username
-  # end
+  def display_resource(user)
+    "ID: ##{user.id} - #{user.username}"
+  end
 end

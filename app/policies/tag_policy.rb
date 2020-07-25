@@ -11,10 +11,14 @@ class TagPolicy < ApplicationPolicy
     has_mod_permission?
   end
 
+  def admin?
+    user_admin?
+  end
+
   private
 
   def has_mod_permission?
-    user_is_admin? ||
+    user_admin? ||
       user.has_role?(:tag_moderator, record)
   end
 end

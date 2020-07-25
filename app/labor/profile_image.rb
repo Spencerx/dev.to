@@ -8,16 +8,16 @@ class ProfileImage
     @backup_link = "https://thepracticaldev.s3.amazonaws.com/i/99mvlsfu5tfj9m7ku25d.png"
   end
 
-  def get(width = 120)
+  def get(width: 120)
     cl_image_path(get_link,
-                                   type: "fetch",
-                                   crop: "fill",
-                                   width: width,
-                                   height: width,
-                                   quality: "auto",
-                                   flags: "progressive",
-                                   fetch_format: "auto",
-                                   sign_url: true)
+                  type: "fetch",
+                  crop: "fill",
+                  width: width,
+                  height: width,
+                  quality: "auto",
+                  flags: "progressive",
+                  fetch_format: "auto",
+                  sign_url: true)
   end
 
   def get_link

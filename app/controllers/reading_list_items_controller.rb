@@ -1,8 +1,25 @@
 class ReadingListItemsController < ApplicationController
-  before_action :set_cache_control_headers, only: [:index]
-
   def index
     @reading_list_items_index = true
-    set_surrogate_key_header "reading-list-index"
+    set_view
+  end
+
+  def update
+    @reaction = Reaction.find(params[:id])
+    not_authorized if @reaction.user_id != session_current_user_id
+
+    @reaction.status = params[:current_status] == "archived" ? "valid" : "archived"
+    @reaction.save
+    head :ok
+  end
+
+  private
+
+  def set_view
+    @view = if params[:view] == "archive"
+              "archived"
+            else
+              "valid,confirmed"
+            end
   end
 end

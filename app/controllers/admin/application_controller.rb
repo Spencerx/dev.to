@@ -10,13 +10,14 @@ module Admin
     before_action :authorize_admin
 
     def order
-      @_order ||= Administrate::Order.new(params[:order] || "id", params[:direction] || "desc")
+      @order ||= Administrate::Order.new(params[:order] || "id", params[:direction] || "desc")
     end
 
     def valid_request_origin?
       # Temp monkey patch. Since we use https at the edge via fastly I think our protocol expectations
       # are out of wack.
       raise InvalidAuthenticityToken, NULL_ORIGIN_MESSAGE if request.origin == "null"
+
       request.origin.nil? || request.origin.gsub("https", "http") == request.base_url.gsub("https", "http")
     end
 

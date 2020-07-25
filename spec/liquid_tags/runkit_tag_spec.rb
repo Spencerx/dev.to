@@ -1,7 +1,13 @@
 require "rails_helper"
 
-RSpec.describe RunkitTag, type: :liquid_template do
+RSpec.describe RunkitTag, type: :liquid_tag do
   describe "#render" do
+    let(:preamble) do
+      <<~CODE
+        const myVar = 9001
+      CODE
+    end
+
     let(:content) do
       <<~CODE
         // GeoJSON!
@@ -11,22 +17,14 @@ RSpec.describe RunkitTag, type: :liquid_template do
       CODE
     end
 
-    def generate_new_liquid(block)
+    def generate_runkit_liquid(preamble_str, block)
       Liquid::Template.register_tag("runkit", described_class)
-      Liquid::Template.parse("{% runkit %}#{block}{% endrunkit %}")
-    end
-
-    def generate_script(block)
-      <<~HTML
-        <div class="runkit-element">
-          #{block}
-        </div>
-      HTML
+      Liquid::Template.parse("{% runkit #{preamble_str}%}#{block}{% endrunkit %}")
     end
 
     it "generates proper div with content" do
-      liquid = generate_new_liquid(content)
-      expect(liquid.render).to eq(generate_script(content))
+      rendered = generate_runkit_liquid(preamble, content).render
+      Approvals.verify(rendered, name: "runkit_liquid_tag_spec", format: :html)
     end
   end
 end

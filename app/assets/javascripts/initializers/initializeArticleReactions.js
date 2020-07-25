@@ -1,54 +1,73 @@
-function initializeArticleReactions() {
-  setTimeout(function () {
-    if (document.getElementById("article-body")) {
-      var articleId = document.getElementById("article-body").dataset.articleId;
-      if (document.getElementById("article-reaction-actions")) {
+/* global sendHapticMessage, showModal */
 
-        var ajaxReq;
-        var thisButt = this;
-        if (window.XMLHttpRequest) {
-          ajaxReq = new XMLHttpRequest();
-        } else {
-          ajaxReq = new ActiveXObject("Microsoft.XMLHTTP");
-        }
-        ajaxReq.onreadystatechange = function () {
-          if (ajaxReq.readyState == XMLHttpRequest.DONE) {
-            var json = JSON.parse(ajaxReq.response);
-            json.article_reaction_counts.forEach(function (reaction) {
-              if (reaction.count > 0) {
-                document.getElementById("reaction-butt-" + reaction.category).classList.add("activated")
-                document.getElementById("reaction-number-" + reaction.category).innerHTML = reaction.count;
-              }
-            })
-            json.reactions.forEach(function (reaction) {
-              if (document.getElementById("reaction-butt-" + reaction.category)) {
-                document.getElementById("reaction-butt-" + reaction.category).classList.add("user-activated")
-              }
-            })
+// Set reaction count to correct number
+function setReactionCount(reactionName, newCount) {
+  var reactionClassList = document.getElementById(
+    'reaction-butt-' + reactionName,
+  ).classList;
+  var reactionNumber = document.getElementById(
+    'reaction-number-' + reactionName,
+  );
+  if (newCount > 0) {
+    reactionClassList.add('activated');
+    reactionNumber.textContent = newCount;
+  } else {
+    reactionClassList.remove('activated');
+    reactionNumber.textContent = '0';
+  }
+}
 
-          }
-        }
-        ajaxReq.open("GET", "/reactions?article_id=" + articleId, true);
-        ajaxReq.send();
-      }
-    }
-    var reactionButts = document.getElementsByClassName("article-reaction-butt")
-    for (var i = 0; i < reactionButts.length; i++) {
-      reactionButts[i].onclick = function (e) {
-        reactToArticle(articleId, this.dataset.category)
-      };
-    }
-  }, 3)
+function showUserReaction(reactionName, animatedClass) {
+  const reactionButton = document.getElementById(
+    'reaction-butt-' + reactionName,
+  );
+  reactionButton.classList.add('user-activated', animatedClass);
+  reactionButton.setAttribute('aria-checked', 'true');
+}
+
+function hideUserReaction(reactionName) {
+  const reactionButton = document.getElementById(
+    'reaction-butt-' + reactionName,
+  );
+  reactionButton.classList.remove('user-activated', 'user-animated');
+  reactionButton.setAttribute('aria-checked', 'false');
+}
+
+function hasUserReacted(reactionName) {
+  return document
+    .getElementById('reaction-butt-' + reactionName)
+    .classList.contains('user-activated');
+}
+
+function getNumReactions(reactionName) {
+  const reactionEl = document.getElementById('reaction-number-' + reactionName);
+  if (!reactionEl || reactionEl.textContent === '') {
+    return 0;
+  }
+
+  return parseInt(reactionEl.textContent, 10);
 }
 
 function reactToArticle(articleId, reaction) {
-  var userStatus = document.getElementsByTagName('body')[0].getAttribute('data-user-status');
-  if (userStatus == "logged-out") {
-    showModal("react-to-article");
-    return;
-  } else {
-    document.getElementById("reaction-butt-" + reaction).classList.add("user-activated")
+  // Visually toggle the reaction
+  function toggleReaction() {
+    var currentNum = getNumReactions(reaction);
+    if (hasUserReacted(reaction)) {
+      hideUserReaction(reaction);
+      setReactionCount(reaction, currentNum - 1);
+    } else {
+      showUserReaction(reaction, 'user-animated');
+      setReactionCount(reaction, currentNum + 1);
+    }
   }
+  var userStatus = document.body.getAttribute('data-user-status');
+  sendHapticMessage('medium');
+  if (userStatus === 'logged-out') {
+    showModal('react-to-article');
+    return;
+  }
+  toggleReaction();
+  document.getElementById('reaction-butt-' + reaction).disabled = true;
 
   function createFormdata() {
     /*
@@ -56,42 +75,94 @@ function reactToArticle(articleId, reaction) {
      * The logic can be seen in sendFetch.js.
      */
     var formData = new FormData();
-    formData.append("reactable_type", "Article");
-    formData.append("reactable_id", articleId);
-    formData.append("category", reaction);
+    formData.append('reactable_type', 'Article');
+    formData.append('reactable_id', articleId);
+    formData.append('category', reaction);
     return formData;
   }
 
-  function successCb(response) {
-    var num = document.getElementById("reaction-number-" + reaction).innerHTML;
-    if (response.result == "create") {
-      document.getElementById("reaction-butt-" + reaction).classList.add("user-activated")
-      if (num == "") {
-        document.getElementById("reaction-number-" + reaction).innerHTML = "1";
-      } else {
-        document.getElementById("reaction-number-" + reaction).innerHTML = parseInt(num) + 1;
+  getCsrfToken()
+    .then(sendFetch('reaction-creation', createFormdata()))
+    .then((response) => {
+      if (response.status === 200) {
+        return response.json().then(() => {
+          document.getElementById('reaction-butt-' + reaction).disabled = false;
+        });
       }
-    } else {
-      document.getElementById("reaction-butt-" + reaction).classList.remove("user-activated")
-      if (num == 1) {
-        document.getElementById("reaction-butt-" + reaction).classList.remove("activated")
-        document.getElementById("reaction-number-" + reaction).innerHTML = "";
-      } else {
-        document.getElementById("reaction-number-" + reaction).innerHTML = parseInt(num) - 1;
-      }
+      toggleReaction();
+      document.getElementById('reaction-butt-' + reaction).disabled = false;
+      return undefined;
+    })
+    .catch((error) => {
+      toggleReaction();
+      document.getElementById('reaction-butt-' + reaction).disabled = false;
+    });
+}
+
+function setCollectionFunctionality() {
+  if (document.getElementById('collection-link-inbetween')) {
+    var inbetweenLinks = document.getElementsByClassName(
+      'collection-link-inbetween',
+    );
+    var inbetweenLinksLength = inbetweenLinks.length;
+    for (var i = 0; i < inbetweenLinks.length; i += 1) {
+      inbetweenLinks[i].onclick = (e) => {
+        e.preventDefault();
+        var els = document.getElementsByClassName('collection-link-hidden');
+        var elsLength = els.length;
+        for (var j = 0; j < elsLength; j += 1) {
+          els[0].classList.remove('collection-link-hidden');
+        }
+        for (var k = 0; k < inbetweenLinksLength; k += 1) {
+          inbetweenLinks[0].className = 'collection-link-hidden';
+        }
+      };
     }
   }
+}
 
-  getCsrfToken()
-    .then(sendFetch("reaction-creation", createFormdata()))
-    .then(function (response) {
-      if (response.status === 200) {
-        return response.json().then(successCb);
-      } else {
-        // there's currently no errorCb.
+function requestReactionCounts(articleId) {
+  var ajaxReq;
+  if (window.XMLHttpRequest) {
+    ajaxReq = new XMLHttpRequest();
+  } else {
+    ajaxReq = new ActiveXObject('Microsoft.XMLHTTP');
+  }
+  ajaxReq.onreadystatechange = () => {
+    if (ajaxReq.readyState === XMLHttpRequest.DONE) {
+      var json = JSON.parse(ajaxReq.response);
+      json.article_reaction_counts.forEach((reaction) => {
+        setReactionCount(reaction.category, reaction.count);
+      });
+      json.reactions.forEach((reaction) => {
+        if (document.getElementById('reaction-butt-' + reaction.category)) {
+          showUserReaction(reaction.category, 'not-user-animated');
+        }
+      });
+    }
+  };
+  ajaxReq.open('GET', '/reactions?article_id=' + articleId, true);
+  ajaxReq.send();
+}
+
+function initializeArticleReactions() {
+  setCollectionFunctionality();
+
+  setTimeout(() => {
+    var reactionButts = document.getElementsByClassName('crayons-reaction');
+
+    // we wait for the article to appear,
+    // we also check that reaction buttons are there as draft articles don't have them
+    if (document.getElementById('article-body') && reactionButts.length > 0) {
+      var articleId = document.getElementById('article-body').dataset.articleId;
+
+      requestReactionCounts(articleId);
+
+      for (var i = 0; i < reactionButts.length; i += 1) {
+        reactionButts[i].onclick = function addReactionOnClick(e) {
+          reactToArticle(articleId, this.dataset.category);
+        };
       }
-    })
-    .catch(function (error) {
-      // there's currently no error handling.
-    })
+    }
+  }, 3);
 }

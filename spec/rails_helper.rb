@@ -1,27 +1,23 @@
-# This file is copied to spec/ when you run 'rails generate rspec:install'
 ENV["RAILS_ENV"] = "test"
+require "knapsack_pro"
+KnapsackPro::Adapters::RSpecAdapter.bind
+
+require "spec_helper"
 
 require File.expand_path("../config/environment", __dir__)
 require "rspec/rails"
-Dir[Rails.root.join("spec/support/**/*.rb")].each { |f| require f }
-
-# Prevent database truncation if the environment is production
 abort("The Rails environment is running in production mode!") if Rails.env.production?
-require "spec_helper"
-require "webmock/rspec"
-require "capybara/rspec"
-require "stream_rails"
-require "selenium/webdriver"
-require "rspec/retry"
-require "algolia/webmock"
-require "approvals/rspec"
-require "shoulda/matchers"
-require "pundit/rspec"
-require "pundit/matchers"
-
-WebMock.disable_net_connect!(allow_localhost: true)
 
 # Add additional requires below this line. Rails is not loaded until this point!
+
+require "pundit/matchers"
+require "pundit/rspec"
+require "webmock/rspec"
+require "test_prof/recipes/rspec/before_all"
+require "test_prof/recipes/rspec/let_it_be"
+require "test_prof/recipes/rspec/sample"
+require "sidekiq/testing"
+require "validate_url/rspec_matcher"
 
 # Requires supporting ruby files with custom matchers and macros, etc, in
 # spec/support/ and its subdirectories. Files matching `spec/**/*_spec.rb` are
@@ -35,45 +31,99 @@ WebMock.disable_net_connect!(allow_localhost: true)
 # of increasing the boot-up time by auto-requiring all files in the support
 # directory. Alternatively, in the individual `*_spec.rb` files, manually
 # require only the support files necessary.
-#
-# Dir[Rails.root.join('spec/support/**/*.rb')].each { |f| require f }
+
+Dir[Rails.root.join("spec/support/**/*.rb")].sort.each { |f| require f }
+Dir[Rails.root.join("spec/system/shared_examples/**/*.rb")].sort.each { |f| require f }
+Dir[Rails.root.join("spec/models/shared_examples/**/*.rb")].sort.each { |f| require f }
+Dir[Rails.root.join("spec/workers/shared_examples/**/*.rb")].sort.each { |f| require f }
+Dir[Rails.root.join("spec/initializers/shared_examples/**/*.rb")].sort.each { |f| require f }
 
 # Checks for pending migrations before tests are run.
 # If you are not using ActiveRecord, you can remove this line.
 ActiveRecord::Migration.maintain_test_schema!
 
+# Disable internet connection with Webmock
+# allow browser websites, so that "webdrivers" can access their binaries
+# see <https://github.com/titusfortner/webdrivers/wiki/Using-with-VCR-or-WebMock>
+allowed_sites = [
+  "chromedriver.storage.googleapis.com",
+  "github.com/mozilla/geckodriver/releases",
+  "selenium-release.storage.googleapis.com",
+  "developer.microsoft.com/en-us/microsoft-edge/tools/webdriver",
+  "api.knapsackpro.com",
+]
+WebMock.disable_net_connect!(allow_localhost: true, allow: allowed_sites)
+
+RSpec::Matchers.define_negated_matcher :not_change, :change
+
+Rack::Attack.enabled = false
+
+# `browser`, a dependency of `field_test`, starting from version 3.0
+# considers the empty user agent a bot, which will fail tests as we
+# explicitly configure field tests to exclude bots
+# see https://github.com/fnando/browser/blob/master/CHANGELOG.md#300
+Browser::Bot.matchers.delete(Browser::Bot::EmptyUserAgentMatcher)
+
 RSpec.configure do |config|
-  # Remove this line if you're not using ActiveRecord or ActiveRecord fixtures
+  config.use_transactional_fixtures = true
   config.fixture_path = "#{::Rails.root}/spec/fixtures"
 
-  Approvals.configure do |approvals_config|
-    approvals_config.approvals_path = "#{::Rails.root}/spec/support/fixtures/approvals/"
+  config.include ApplicationHelper
+  config.include ActionMailer::TestHelper
+  config.include ActiveJob::TestHelper
+  config.include Devise::Test::ControllerHelpers, type: :view
+  config.include Devise::Test::IntegrationHelpers, type: :system
+  config.include Devise::Test::IntegrationHelpers, type: :request
+  config.include FactoryBot::Syntax::Methods
+  config.include OmniauthHelpers
+  config.include SidekiqTestHelpers
+  config.include ElasticsearchHelpers
+
+  config.after(:each, type: :system) do
+    Warden::Manager._on_request.clear
   end
 
-  config.include Devise::Test::ControllerHelpers, type: :view
-  config.include Devise::Test::ControllerHelpers, type: :controller
-  config.include RequestSpecHelper, type: :request
-  config.include ApplicationHelper
-  # config.include CommentsHelper, type: :view
+  config.after(:each, type: :request) do
+    Warden::Manager._on_request.clear
+  end
 
-  config.use_transactional_fixtures = false
-  config.include FactoryBot::Syntax::Methods
-
-  # Apply rack_session_access integrated with devise.
-  config.include Devise::Test::IntegrationHelpers, type: :feature
-
-  # show retry status in spec process
-  config.verbose_retry = true
-  # show exception that triggers a retry if verbose_retry is set to true
-  config.display_try_failure_messages = true
-
-  # run retry only on features
-  config.around :each, :js do |ex|
-    ex.run_with_retry retry: 3
+  config.before(:suite) do
+    Search::Cluster.recreate_indexes
   end
 
   config.before do
-    ActiveRecord::Base.observers.disable :all # <-- Turn 'em all off!
+    # Worker jobs shouldn't linger around between tests
+    Sidekiq::Worker.clear_all
+  end
+
+  config.before(:each, stub_elasticsearch: true) do |_example|
+    stubbed_search_response = { "hits" => { "hits" => [] } }
+    allow(Search::Client).to receive(:search).and_return(stubbed_search_response)
+    allow(Search::Client).to receive(:index).and_return({ "_source" => {} })
+  end
+
+  config.around(:each, elasticsearch_reset: true) do |example|
+    Search::Cluster.recreate_indexes
+    example.run
+    Search::Cluster.recreate_indexes
+  end
+
+  config.around(:each, :elasticsearch) do |ex|
+    klasses = Array.wrap(ex.metadata[:elasticsearch]).map do |search_class|
+      Search.const_get(search_class)
+    end
+    klasses.each { |klass| clear_elasticsearch_data(klass) }
+    ex.run
+  end
+
+  config.around(:each, throttle: true) do |example|
+    Rack::Attack.enabled = true
+    example.run
+    Rack::Attack.enabled = false
+  end
+
+  config.after do
+    SiteConfig.clear_cache
   end
 
   # Only turn on VCR if :vcr is included metadata keys
@@ -85,97 +135,54 @@ RSpec.configure do |config|
     end
   end
 
-  # Allow testing with Stripe's test server. BECAREFUL
-  if config.filter_manager.inclusions.rules.include?(:live)
-    WebMock.allow_net_connect!
-    StripeMock.toggle_live(true)
-    puts "Running **live** tests against Stripe..."
-  end
-
   config.before do
     stub_request(:any, /res.cloudinary.com/).to_rack("dsdsdsds")
 
-    stub_request(:post, /api.fastly.com/).
-      to_return(status: 200, body: "", headers: {})
+    stub_request(:any, /emojipedia-us.s3.dualstack.us-west-1.amazonaws.com/).to_rack("stubbed-emoji")
 
-    stub_request(:post, /api.bufferapp.com/).
-      to_return(status: 200, body: { fake_text: "so fake" }.to_json, headers: {})
+    stub_request(:post, /api.fastly.com/)
+      .to_return(status: 200, body: "".to_json, headers: {})
 
-    # stub_request(:any, /api.getstream.io/).to_rack(FakeStream)
+    stub_request(:post, /api.bufferapp.com/)
+      .to_return(status: 200, body: { fake_text: "so fake" }.to_json, headers: {})
 
     # for twitter image cdn
-    stub_request(:get, /twimg.com/).
-      to_return(status: 200, body: "", headers: {})
+    stub_request(:get, /twimg.com/)
+      .to_return(status: 200, body: "", headers: {})
 
-    stub_request(:any, /api.mailchimp.com/).
-      to_return(status: 200, body: "", headers: {})
+    stub_request(:any, /api.mailchimp.com/)
+      .to_return(status: 200, body: "", headers: {})
 
-    stub_request(:post, /us-east-api.stream-io-api.com\/api\/v1.0\/feed\/user/).
-      to_return(status: 200, body: "{}", headers: {})
+    stub_request(:any, /dummyimage.com/)
+      .to_return(status: 200, body: "", headers: {})
 
-    stub_request(:get, /us-east-api.stream-io-api.com\/api/).to_rack(FakeStream)
+    stub_request(:post, "http://www.google-analytics.com/collect")
+      .to_return(status: 200, body: "", headers: {})
+
+    stub_request(:any, /robohash.org/)
+      .with(headers:
+            {
+              "Accept" => "*/*",
+              "Accept-Encoding" => "gzip;q=1.0,deflate;q=0.6,identity;q=0.3",
+              "User-Agent" => "Ruby"
+            }).to_return(status: 200, body: "", headers: {})
+
+    allow(SiteConfig).to receive(:community_description).and_return("Some description")
   end
 
-  # Stub Stream.io
-  StreamRails.enabled = false
+  config.after do
+    Timecop.return
+  end
 
-  # Omniauth mock
+  config.after(:suite) do
+    WebMock.disable_net_connect!(
+      allow_localhost: true,
+      allow: allowed_sites,
+    )
+  end
 
   OmniAuth.config.test_mode = true
-
-  raw_info = Hashie::Mash.new
-  raw_info.email = "yourname@email.com"
-  raw_info.first_name = "fname"
-  raw_info.gender = "female"
-  raw_info.id = "123456"
-  raw_info.last_name = "lname"
-  raw_info.link = "http://www.facebook.com/url&#8221"
-  raw_info.lang = "fr"
-  raw_info.locale = "en_US"
-  raw_info.name = "fname lname"
-  raw_info.timezone = 5.5
-  raw_info.updated_time = "2012-06-08T13:09:47+0000"
-  raw_info.username = "fname.lname"
-  raw_info.verified = true
-  raw_info.followers_count = 100
-  raw_info.friends_count = 1000
-  raw_info.created_at = "2017-06-08T13:09:47+0000"
-
-  extra_info = Hashie::Mash.new
-  extra_info.raw_info = raw_info
-
-  info = OmniAuth::AuthHash::InfoHash.new
-  info.first_name = "fname"
-  # info.image = "http://graph.facebook.com/123456/picture?type=square&#8221"
-  info.last_name = "lname"
-  info.location = "location,state,country"
-  info.name = "fname lname"
-  info.nickname = "fname.lname"
-  info.verified = true
-
-  credentials = OmniAuth::AuthHash::InfoHash.new
-  credentials.token =  "2735246777-jlOnuFlGlvybuwDJfyrIyESLUEgoo6CffyJCQUO"
-  credentials.secret = "o0cu6ACtypMQfLyWhme3Vj99uSds7rjr4szuuTiykSYcN"
-
-  twitter_auth_hash = OmniAuth::AuthHash.new
-  twitter_auth_hash.provider = "twitter"
-  twitter_auth_hash.uid = "123456"
-  twitter_auth_hash.info = info
-  twitter_auth_hash.extra = extra_info
-  twitter_auth_hash.credentials = credentials
-
-  github_auth_hash = OmniAuth::AuthHash.new
-  github_auth_hash.provider = "github"
-  github_auth_hash.uid = "1234567"
-  github_auth_hash.info = info
-  github_auth_hash.extra = extra_info
-  github_auth_hash.credentials = credentials
-
-  OmniAuth.config.mock_auth[:twitter] = twitter_auth_hash
-
-  OmniAuth.config.mock_auth[:github] = github_auth_hash
-
-  #########
+  OmniAuth.config.logger = Rails.logger
 
   config.infer_spec_type_from_file_location!
 
@@ -184,30 +191,3 @@ RSpec.configure do |config|
   # arbitrary gems may also be filtered via:
   # config.filter_gems_from_backtrace("gem name")
 end
-
-Shoulda::Matchers.configure do |config|
-  config.integrate do |with|
-    with.test_framework :rspec
-    with.library :rails
-  end
-end
-
-Capybara.register_driver :chrome do |app|
-  Capybara::Selenium::Driver.new(app, browser: :chrome)
-end
-
-Capybara.register_driver :headless_chrome do |app|
-  capabilities = Selenium::WebDriver::Remote::Capabilities.chrome(
-    chromeOptions: { args: %w(headless disable-gpu no-sandbox window-size=1400,2000) },
-  )
-
-  Capybara::Selenium::Driver.new app,
-    browser: :chrome,
-    desired_capabilities: capabilities
-end
-
-# The current driveres implemented are
-# - chrome-helper (:chrome) => Use this for browser-based testing
-# - headless-chrome (:headless_chrome) => headless version of chrome-helper
-
-Capybara.javascript_driver = :headless_chrome

@@ -4,75 +4,39 @@ class FeedbackMessagesController < ApplicationController
 
   def create
     flash.clear
-    @feedback_message = FeedbackMessage.new(
-      feedback_message_params.merge(reporter_id: current_user&.id),
-    )
-    if recaptcha_verified? && @feedback_message.save
-      send_slack_message
-      # NotifyMailer.new_report_email(@feedback_message).deliver if @feedback_message.reporter_id?
-      redirect_to "/feedback_messages"
-    elsif feedback_message_params[:feedback_type] == "bug-reports"
-      flash[:notice] = "Make sure the forms are filled 🤖 "
-      render file: "public/500.html", status: 500, layout: false
-    else
-      flash[:notice] = "Make sure the forms are filled 🤖 "
-      @previous_message = feedback_message_params[:message]
-      render "pages/report-abuse.html.erb"
-    end
-  end
+    rate_limit!(:feedback_message_creation)
 
-  def show
-    @feedback_message = FeedbackMessage.find_by(slug: params[:slug])
+    params = feedback_message_params.merge(reporter_id: current_user&.id)
+    @feedback_message = FeedbackMessage.new(params)
+
+    if recaptcha_verified? && @feedback_message.save
+      Slack::Messengers::Feedback.call(
+        user: current_user,
+        type: feedback_message_params[:feedback_type],
+        category: feedback_message_params[:category],
+        reported_url: feedback_message_params[:reported_url],
+        message: feedback_message_params[:message],
+      )
+      rate_limiter.track_limit_by_action(:feedback_message_creation)
+
+      redirect_to feedback_messages_path
+    else
+      @previous_message = feedback_message_params[:message]
+
+      flash[:notice] = "Make sure the forms are filled 🤖"
+      render "pages/report_abuse"
+    end
   end
 
   private
 
   def recaptcha_verified?
-    params["g-recaptcha-response"] &&
-      verify_recaptcha(secret_key: ApplicationConfig["RECAPTCHA_SECRET"])
-  end
-
-  def send_slack_message
-    SlackBot.ping(
-      generate_message,
-      channel: feedback_message_params[:feedback_type].to_s,
-      username: "#{feedback_message_params[:feedback_type]}_bot",
-      icon_emoji: ":#{emoji_for_feedback(feedback_message_params[:feedback_type])}:",
-    )
-  end
-
-  def generate_message
-    <<~HEREDOC
-      #{generate_user_detail}
-      Category: #{feedback_message_params[:category]}
-      Internal Report: https://dev.to/internal/reports
-      *_ Reported URL: #{feedback_message_params[:reported_url]} _*
-      -----
-      *Message:* #{feedback_message_params[:message]}
-    HEREDOC
-  end
-
-  def generate_user_detail
-    return "*Anonymous report:*" unless current_user
-    <<~HEREDOC
-      *Logged in user:*
-      reporter: #{current_user.username} - https://dev.to/#{current_user.username}
-      email: <mailto:#{current_user.email}|#{current_user.email}>
-    HEREDOC
-  end
-
-  def emoji_for_feedback(feedback_type)
-    case feedback_type
-    when "abuse-reports"
-      "cry"
-    when "bug-reports"
-      "face_with_head_bandage"
-    else
-      "robot_face"
-    end
+    recaptcha_params = { secret_key: ApplicationConfig["RECAPTCHA_SECRET"] }
+    params["g-recaptcha-response"] && verify_recaptcha(recaptcha_params)
   end
 
   def feedback_message_params
-    params[:feedback_message].permit(:message, :feedback_type, :category, :reported_url)
+    allowed_params = %i[message feedback_type category reported_url]
+    params.require(:feedback_message).permit(allowed_params)
   end
 end

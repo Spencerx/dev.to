@@ -14,9 +14,6 @@ class PodcastEpisodeDashboard < Administrate::BaseDashboard
     summary: Field::Text,
     body: Field::Text,
     quote: Field::Text,
-    featured_number: Field::Number,
-    featured: Field::Boolean,
-    order_key: Field::String,
     processed_html: Field::Text,
     comments_count: Field::Number,
     reactions_count: Field::Number,
@@ -25,13 +22,14 @@ class PodcastEpisodeDashboard < Administrate::BaseDashboard
     itunes_url: Field::String,
     image: CarrierwaveField,
     podcast: Field::BelongsTo,
-    duration_in_seconds: Field::Number,
     published_at: Field::DateTime,
     slug: Field::String,
     guid: Field::String,
+    reachable: Field::Boolean,
+    https: Field::Boolean,
     created_at: Field::DateTime,
     updated_at: Field::DateTime,
-    social_image: CarrierwaveField,
+    social_image: CarrierwaveField
   }.freeze
 
   # COLLECTION_ATTRIBUTES
@@ -42,6 +40,9 @@ class PodcastEpisodeDashboard < Administrate::BaseDashboard
   COLLECTION_ATTRIBUTES = %i[
     id
     title
+    media_url
+    reachable
+    https
   ].freeze
 
   # SHOW_PAGE_ATTRIBUTES
@@ -53,14 +54,13 @@ class PodcastEpisodeDashboard < Administrate::BaseDashboard
     image
     social_image
     body
-    featured
-    featured_number
     media_url
     website_url
     itunes_url
-    duration_in_seconds
     published_at
     slug
+    reachable
+    https
     created_at
     updated_at
   ].freeze
@@ -75,7 +75,6 @@ class PodcastEpisodeDashboard < Administrate::BaseDashboard
     media_url
     itunes_url
     social_image
-    duration_in_seconds
     published_at
   ].freeze
 

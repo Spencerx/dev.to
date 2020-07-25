@@ -1,36 +1,17 @@
 class Tweet < ApplicationRecord
-  include AlgoliaSearch
-
   mount_uploader :profile_image, ProfileImageUploader
 
   belongs_to :user, optional: true
 
-  serialize :mentioned_usernames_serialized
-  serialize :hashtags_serialized
-  serialize :urls_serialized
-  serialize :media_serialized
   serialize :extended_entities_serialized
   serialize :full_fetched_object_serialized
+  serialize :hashtags_serialized
+  serialize :media_serialized
+  serialize :mentioned_usernames_serialized
+  serialize :urls_serialized
 
-  validates :twitter_id_code, presence: true
   validates :full_fetched_object_serialized, presence: true
-
-  def self.find_or_fetch(twitter_id_code)
-    find_by_twitter_id_code(twitter_id_code) || fetch(twitter_id_code)
-  end
-
-  def self.fetch(twitter_id_code)
-    tries = 0
-    tweet = nil
-    until tries > 4 || tweet
-      begin
-        return tweet = try_to_get_tweet(twitter_id_code)
-      rescue StandardError => e
-        puts e
-        tries += 1
-      end
-    end
-  end
+  validates :twitter_id_code, presence: true
 
   def processed_text
     urls_serialized.each do |url|
@@ -42,7 +23,8 @@ class Tweet < ApplicationRecord
     end
     hashtags_serialized.each do |tag|
       tag_text = tag[:text]
-      text.gsub!("#" + tag_text, "<a href='https://twitter.com/hashtag/#{tag_text}'>#{'#' + tag_text}</a>")
+      text.gsub!("#" + tag_text,
+                 "<a href='https://twitter.com/hashtag/#{tag_text}'>#{'#' + tag_text}</a>")
     end
 
     if extended_entities_serialized && extended_entities_serialized[:media]
@@ -55,52 +37,84 @@ class Tweet < ApplicationRecord
     text
   end
 
-  private
+  class << self
+    def find_or_fetch(status_id)
+      find_by(twitter_id_code: status_id) || fetch(status_id)
+    end
 
-  def self.try_to_get_tweet(twitter_id_code)
-    c = TwitterBot.new(random_identity).client
-    t = c.status(twitter_id_code, tweet_mode: "extended")
-    make_tweet_from_api_object(t)
-  end
+    private
 
-  def self.make_tweet_from_api_object(t)
-    t = TwitterBot.new(random_identity).client.status(t.attrs[:retweeted_status][:id_str]) if t.attrs[:retweeted_status]
-    tweet = Tweet.where(twitter_id_code: t.attrs[:id_str]).first_or_initialize
-    tweet.twitter_uid = t.user.id.to_s
-    tweet.twitter_username = t.user.screen_name.downcase
-    tweet.user_id = User.find_by_twitter_username(t.user.screen_name).try(:id)
-    tweet.favorite_count = t.favorite_count
-    tweet.retweet_count = t.retweet_count
-    tweet.in_reply_to_user_id_code = t.attrs[:in_reply_to_user_id_str]
-    tweet.in_reply_to_user_id_code = t.attrs[:in_reply_to_status_id_str]
-    tweet.twitter_user_following_count = t.user.friends_count
-    tweet.twitter_user_followers_count = t.user.followers_count
-    tweet.twitter_id_code = t.attrs[:id_str]
-    tweet.quoted_tweet_id_code = t.attrs[:quoted_status_id_str]
-    tweet.in_reply_to_username = t.in_reply_to_screen_name
-    tweet.source = t.source
-    tweet.text = t.attrs[:full_text]
-    tweet.twitter_name = t.user.name
-    tweet.mentioned_usernames_serialized = t.user_mentions.as_json
-    tweet.hashtags_serialized = t.attrs[:entities][:hashtags]
-    tweet.remote_profile_image_url = t.user.profile_image_url
-    tweet.urls_serialized = t.attrs[:entities][:urls]
-    tweet.media_serialized = t.attrs[:media]
-    tweet.extended_entities_serialized = t.attrs[:extended_entities]
-    tweet.full_fetched_object_serialized = t.attrs
-    tweet.tweeted_at = t.attrs[:created_at]
-    tweet.last_fetched_at = Time.now
-    tweet.user_is_verified = t.user.verified?
-    tweet.is_quote_status = t.attrs[:is_quote_status]
-    tweet.save!
-    tweet
-  end
+    def fetch(status_id)
+      retrieve_and_save_tweet(status_id)
+    rescue TwitterClient::Errors::NotFound => e
+      raise e, "Tweet not found"
+    end
 
-  def self.random_identity
-    iden = Identity.where(provider: "twitter").last(250).sample
-    {
-      token: iden&.token || ApplicationConfig["TWITTER_KEY"],
-      secret: iden&.secret || ApplicationConfig["TWITTER_SECRET"],
-    }
+    def retrieve_and_save_tweet(status_id)
+      status = TwitterClient::Client.status(status_id, tweet_mode: "extended")
+      create_tweet_from_api_status(status)
+    end
+
+    def create_tweet_from_api_status(status)
+      status = if status.retweeted_status.present?
+                 TwitterClient::Client.status(status.retweeted_status.id.to_s)
+               else
+                 status
+               end
+
+      params = { twitter_id_code: status.id.to_s }
+      tweet = Tweet.find_by(params) || new(params)
+
+      tweet.text = status.full_text
+
+      # matching the retrieved tweet to the DB user if there is one
+      tweet.user_id = User.find_by(twitter_username: status.user.screen_name)&.id
+
+      tweet = extract_metadata_attributes(tweet, status)
+      tweet = extract_serializable_attributes(tweet, status)
+      tweet = extract_user_attributes(tweet, status)
+
+      tweet.last_fetched_at = Time.current
+      tweet.save!
+
+      tweet
+    end
+
+    def extract_metadata_attributes(tweet, status)
+      tweet.favorite_count = status.favorite_count
+      tweet.in_reply_to_status_id_code = status.in_reply_to_status_id.to_s
+      tweet.in_reply_to_user_id_code = status.in_reply_to_user_id.to_s
+      tweet.in_reply_to_username = status.in_reply_to_screen_name.to_s
+      tweet.is_quote_status = status.attrs[:is_quote_status]
+      tweet.quoted_tweet_id_code = status.attrs[:quoted_status_id_str]
+      tweet.retweet_count = status.retweet_count
+      tweet.source = status.source
+      tweet.tweeted_at = status.created_at
+
+      tweet
+    end
+
+    def extract_serializable_attributes(tweet, status)
+      tweet.extended_entities_serialized = status.attrs[:extended_entities]
+      tweet.full_fetched_object_serialized = status.attrs
+      tweet.hashtags_serialized = status.hashtags
+      tweet.media_serialized = status.attrs.dig(:entities, :media)
+      tweet.mentioned_usernames_serialized = status.user_mentions.as_json
+      tweet.urls_serialized = status.urls
+
+      tweet
+    end
+
+    def extract_user_attributes(tweet, status)
+      tweet.remote_profile_image_url = status.user.profile_image_url
+      tweet.twitter_name = status.user.name
+      tweet.twitter_uid = status.user.id.to_s
+      tweet.twitter_user_followers_count = status.user.followers_count
+      tweet.twitter_user_following_count = status.user.friends_count
+      tweet.twitter_username = status.user.screen_name.downcase
+      tweet.user_is_verified = status.user.verified?
+
+      tweet
+    end
   end
 end

@@ -1,10 +1,33 @@
 class UserDecorator < ApplicationDecorator
-  delegate_all
+  WHITE_TEXT_COLORS = [
+    {
+      bg: "#093656",
+      text: "#ffffff"
+    },
+    {
+      bg: "#61122f",
+      text: "#ffffff"
+    },
+    {
+      bg: "#2e0338",
+      text: "#ffffff"
+    },
+    {
+      bg: "#080E3B",
+      text: "#ffffff"
+    },
+  ].freeze
 
   def cached_followed_tags
-    Rails.cache.fetch("user-#{id}-#{updated_at}/followed_tags", expires_in: 100.hours) do
-      Tag.where(id: Follow.where(follower_id: id, followable_type: "ActsAsTaggableOn::Tag").pluck(:followable_id)).order("hotness_score DESC")
+    follows_map = Rails.cache.fetch("user-#{id}-#{last_followed_at&.rfc3339}/followed_tags", expires_in: 20.hours) do
+      Follow.follower_tag(id).pluck(:followable_id, :points).to_h
     end
+
+    tags = Tag.where(id: follows_map.keys).order(hotness_score: :desc)
+    tags.each do |tag|
+      tag.points = follows_map[tag.id]
+    end
+    tags
   end
 
   def darker_color(adjustment = 0.88)
@@ -12,62 +35,70 @@ class UserDecorator < ApplicationDecorator
   end
 
   def enriched_colors
-    if bg_color_hex.blank?
+    if bg_color_hex.blank? || text_color_hex.blank?
       {
         bg: assigned_color[:bg],
-        text: assigned_color[:text],
+        text: assigned_color[:text]
       }
     else
       {
-        bg: bg_color_hex || assigned_color[:bg],
-        text: text_color_hex || assigned_color[:text],
+        bg: bg_color_hex,
+        text: text_color_hex
       }
     end
+  end
+
+  def config_body_class
+    body_class = [
+      config_theme.tr("_", "-"),
+      "#{config_font.tr('_', '-')}-article-body",
+      "trusted-status-#{trusted}",
+      "#{config_navbar.tr('_', '-')}-navbar-config",
+    ]
+    body_class.join(" ")
+  end
+
+  def dark_theme?
+    config_theme == "night_theme" || config_theme == "ten_x_hacker_theme"
   end
 
   def assigned_color
     colors = [
       {
-        bg: "#093656",
-        text: "#ffffff",
-      },
-      {
         bg: "#19063A",
-        text: "#dce9f3",
+        text: "#dce9f3"
       },
       {
         bg: "#0D4D4B",
-        text: "#fdf9f3",
-      },
-      {
-        bg: "#61122f",
-        text: "#ffffff",
-      },
-      {
-        bg: "#edebf6",
-        text: " #070126",
-      },
-      {
-        bg: "#080E3B",
-        text: "#ffffff",
+        text: "#fdf9f3"
       },
       {
         bg: "#010C1F",
-        text: "#aebcd5",
+        text: "#aebcd5"
       },
       {
         bg: "#d7dee2",
-        text: "#022235",
+        text: "#022235"
       },
       {
         bg: "#161616",
-        text: "#66e2d5",
+        text: "#66e2d5"
       },
       {
         bg: "#1c0bba",
-        text: "#c9d2dd",
+        text: "#c9d2dd"
       },
     ]
-    colors[id % 10]
+    colors |= WHITE_TEXT_COLORS
+    colors[(id || rand(100)) % 10]
+  end
+
+  # returns true if the user has been suspended and has no content
+  def fully_banished?
+    articles_count.zero? && comments_count.zero? && banned
+  end
+
+  def stackbit_integration?
+    access_tokens.any?
   end
 end

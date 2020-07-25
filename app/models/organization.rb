@@ -1,59 +1,79 @@
 class Organization < ApplicationRecord
   include CloudinaryHelper
 
+  COLOR_HEX_REGEXP = /\A#([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})\z/.freeze
+  INTEGER_REGEXP = /\A\d+\z/.freeze
+  SLUG_REGEXP = /\A[a-zA-Z0-9\-_]+\z/.freeze
+  MESSAGES = {
+    integer_only: "Integer only. No sign allowed.",
+    reserved_word: "%<value>s is a reserved word. Contact site admins for help registering your organization."
+  }.freeze
+
   acts_as_followable
 
-  has_many :job_listings
-  has_many :users
+  has_many :api_secrets, through: :users
   has_many :articles
+  has_many :listings
   has_many :collections
+  has_many :credits
   has_many :display_ads
+  has_many :notifications
+  has_many :organization_memberships, dependent: :delete_all
+  has_many :profile_pins, as: :profile, inverse_of: :profile
+  has_many :sponsorships
+  has_many :unspent_credits, -> { where spent: false }, class_name: "Credit", inverse_of: :organization
+  has_many :users, through: :organization_memberships
 
+  validates :bg_color_hex, format: COLOR_HEX_REGEXP, allow_blank: true
+  validates :company_size, format: { with: INTEGER_REGEXP, message: MESSAGES[:integer_only], allow_blank: true }
+  validates :company_size, length: { maximum: 7 }, allow_nil: true
+  validates :cta_body_markdown, length: { maximum: 256 }
+  validates :cta_button_text, length: { maximum: 20 }
+  validates :cta_button_url, length: { maximum: 150 }, url: { allow_blank: true, no_local: true }
+  validates :github_username, length: { maximum: 50 }
+  validates :location, :email, length: { maximum: 64 }
   validates :name, :summary, :url, :profile_image, presence: true
-  validates :name,
-            length: { maximum: 50 }
-  validates :summary,
-            length: { maximum: 250 }
-  validates :tag_line,
-            length: { maximum: 60 }
-  validates :jobs_email, email: true, allow_blank: true
-  validates :text_color_hex, format: /\A#([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})\z/, allow_blank: true
-  validates :bg_color_hex, format: /\A#([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})\z/, allow_blank: true
-  validates :slug,
-            presence: true,
-            uniqueness: { case_sensitive: false },
-            format: { with: /\A[a-zA-Z0-9\-_]+\Z/ },
-            length: { in: 2..18 },
-            exclusion: { in: ReservedWords.all,
-                         message: "%{value} is reserved." }
-  validates :url, url: { allow_blank: true, no_local: true, schemes: ["https", "http"] }
-  validates :secret, uniqueness: { allow_blank: true }
-  validates :location, :email, :company_size, length: { maximum: 64 }
-  validates :company_size, format: { with: /\A\d+\z/,
-                                     message: "Integer only. No sign allowed.",
-                                     allow_blank: true }
+  validates :name, length: { maximum: 50 }
+  validates :proof, length: { maximum: 1500 }
+  validates :secret, length: { is: 100 }, allow_nil: true
+  validates :secret, uniqueness: true
+  validates :slug, exclusion: { in: ReservedWords.all, message: MESSAGES[:reserved_word] }
+  validates :slug, format: { with: SLUG_REGEXP }, length: { in: 2..18 }
+  validates :slug, presence: true, uniqueness: { case_sensitive: false }
+  validates :summary, length: { maximum: 250 }
+  validates :tag_line, length: { maximum: 60 }
   validates :tech_stack, :story, length: { maximum: 640 }
-  validates :cta_button_url,
-    url: { allow_blank: true, no_local: true, schemes: ["https", "http"] }, if: :approved
-  validates :cta_button_text, length: { maximum: 12 }
-  validates :cta_body_markdown, length: { maximum: 140 }
-  before_save :remove_at_from_usernames
-  after_save  :bust_cache
-  before_save :generate_secret
-  before_validation :downcase_slug
-  before_validation :evaluate_markdown, if: :approved
+  validates :text_color_hex, format: COLOR_HEX_REGEXP, allow_blank: true
+  validates :twitter_username, length: { maximum: 15 }
+  validates :url, length: { maximum: 200 }, url: { allow_blank: true, no_local: true }
 
-  validate :unique_slug_including_users
+  validate :unique_slug_including_users_and_podcasts, if: :slug_changed?
+
+  after_save :bust_cache
+  before_save :generate_secret
+  before_save :remove_at_from_usernames
+  before_save :update_articles
+  before_validation :check_for_slug_change
+  before_validation :downcase_slug
+  before_validation :evaluate_markdown
+
+  after_commit :sync_related_elasticsearch_docs, on: %i[update destroy]
 
   mount_uploader :profile_image, ProfileImageUploader
   mount_uploader :nav_image, ProfileImageUploader
+  mount_uploader :dark_nav_image, ProfileImageUploader
 
-  def username
-    slug
-  end
+  alias_attribute :username, :slug
+  alias_attribute :old_username, :old_slug
+  alias_attribute :old_old_username, :old_old_slug
+  alias_attribute :website_url, :url
 
-  def website_url
-    url
+  def check_for_slug_change
+    return unless slug_changed?
+
+    self.old_old_slug = old_slug
+    self.old_slug = slug_was
+    Organizations::UpdateOrganizationArticlesPathsWorker.perform_async(id, slug_was, slug)
   end
 
   def path
@@ -61,26 +81,27 @@ class Organization < ApplicationRecord
   end
 
   def generate_secret
-    if secret.blank?
-      self.secret = generated_random_secret
-    end
+    self.secret = generated_random_secret if secret.blank?
   end
 
   def generated_random_secret
     SecureRandom.hex(50)
   end
 
-  def resave_articles
-    cache_buster = CacheBuster.new
-    articles.each do |article|
-      cache_buster.bust(article.path)
-      cache_buster.bust(article.path + "?i=i")
-      article.save
-    end
+  def approved_and_filled_out_cta?
+    cta_processed_html?
   end
 
-  def approved_and_filled_out_cta?
-    approved && cta_body_markdown? && cta_button_text? && cta_button_url?
+  def profile_image_90
+    ProfileImage.new(self).get(width: 90)
+  end
+
+  def enough_credits?(num_credits_needed)
+    credits.unspent.size >= num_credits_needed
+  end
+
+  def banned
+    false
   end
 
   private
@@ -90,28 +111,43 @@ class Organization < ApplicationRecord
   end
 
   def remove_at_from_usernames
-    self.twitter_username = twitter_username.gsub("@", "") if twitter_username
-    self.github_username = github_username.gsub("@", "") if github_username
+    self.twitter_username = twitter_username.delete("@") if twitter_username
+    self.github_username = github_username.delete("@") if github_username
   end
 
   def downcase_slug
-    self.slug = slug.downcase
+    self.slug = slug&.downcase
+  end
+
+  def update_articles
+    return unless saved_change_to_slug || saved_change_to_name || saved_change_to_profile_image
+
+    cached_org_object = {
+      name: name,
+      username: username,
+      slug: slug,
+      profile_image_90: profile_image_90,
+      profile_image_url: profile_image_url
+    }
+    articles.update(cached_organization: OpenStruct.new(cached_org_object))
   end
 
   def bust_cache
-    cache_buster = CacheBuster.new
-    cache_buster.bust("/#{slug}")
-    begin
-      articles.each do |article|
-        cache_buster.bust(article.path)
-      end
-    rescue StandardError
-      puts "Tag issue"
-    end
+    Organizations::BustCacheWorker.perform_async(id, slug)
   end
-  handle_asynchronously :bust_cache
 
-  def unique_slug_including_users
-    errors.add(:slug, "is taken.") if User.find_by_username(slug)
+  def unique_slug_including_users_and_podcasts
+    slug_taken = (
+      User.exists?(username: slug) ||
+      Podcast.exists?(slug: slug) ||
+      Page.exists?(slug: slug) ||
+      slug&.include?("sitemap-")
+    )
+
+    errors.add(:slug, "is taken.") if slug_taken
+  end
+
+  def sync_related_elasticsearch_docs
+    DataSync::Elasticsearch::Organization.new(self).call
   end
 end

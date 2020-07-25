@@ -5,6 +5,13 @@
   "version": "0.2.0",
   "configurations": [
     {
+      "type": "edge",
+      "request": "attach",
+      "name": "Attach to Edge",
+      "port": 2015,
+      "webRoot": "${workspaceFolder}"
+    },
+    {
       "type": "chrome",
       "request": "attach",
       "name": "Attach to Chrome",
@@ -68,7 +75,8 @@
       "internalConsoleOptions": "neverOpen",
       "windows": {
         "program": "${workspaceFolder}/node_modules/jest/bin/jest"
-      }
+      },
+      "skipFiles": ["node_modules/*", "<node_internals>/**/*.js"]
     }
   ]
 }

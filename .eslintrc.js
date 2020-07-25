@@ -1,10 +1,16 @@
 module.exports = {
-  extends: ['airbnb-base/legacy', 'prettier'],
-  parserOptions: {
-    ecmaVersion: 6,
-  },
   env: {
     browser: true,
+    es6: true,
   },
-  plugins: ['ignore-erb'],
+  extends: ['eslint:recommended', 'prettier'],
+  globals: {
+    Atomics: 'readonly',
+    SharedArrayBuffer: 'readonly',
+  },
+  parserOptions: {
+    ecmaVersion: 2018,
+    sourceType: 'module',
+  },
+  rules: {},
 };

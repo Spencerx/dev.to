@@ -1,66 +1,90 @@
-require "nokogiri"
-
 class GithubTag
   class GithubReadmeTag
-    def initialize(link)
-      @link = parse_link(link)
-      @content = get_content(@link)
+    PARTIAL = "liquids/github_readme".freeze
+    GITHUB_DOMAIN_REGEXP = %r{.*github.com/}.freeze
+    OPTION_NO_README = "no-readme".freeze
+    VALID_OPTIONS = [OPTION_NO_README].freeze
+
+    def initialize(input)
+      @repository_path, @options = parse_input(input)
     end
 
     def render
-      <<~HTML
-        <div class="ltag-github-readme-tag">
-          <div class="readme-overview">
-            <h2>
-              <img src="#{ActionController::Base.helpers.asset_path('github-logo.svg')}" /><a href="https://github.com/#{@content.owner.login}">#{@content.owner.login}</a> / <a style="font-weight: 600;" href="#{@content.html_url}">#{@content.name}</a>
-            </h2>
-            <h3>#{@content.description}</h3>
-          </div><div class="ltag-github-body">
-            <p>#{HTML_Truncator.truncate @updated_html, 150}</p>
-          </div><div class="gh-btn-container"><a class="gh-btn" href="#{@content.html_url}">View on GitHub</a></div></div>
-      HTML
-    end
+      content = Github::Client.repository(repository_path)
 
-    def parse_link(link)
-      link = ActionController::Base.helpers.strip_tags(link)
-      link.gsub(/.*github\.com\//, "").delete(" ")
-    end
+      if show_readme?
+        readme_html = fetch_readme(repository_path)
+      end
 
-    def get_content(link)
-      repo_details = link.split("/")
-      raise_error if repo_details.length > 2
-      user_name = repo_details[0]
-      repo_name = repo_details[1]
-      client = Octokit::Client.new(access_token: token)
-      @readme_html = client.readme user_name + "/" + repo_name, accept: "application/vnd.github.html"
-      @readme = client.readme user_name + "/" + repo_name
-      @updated_html = clean_relative_path!(@readme_html, @readme.download_url)
-      client.repository(user_name + "/" + repo_name)
+      ActionController::Base.new.render_to_string(
+        partial: PARTIAL,
+        locals: {
+          content: content,
+          show_readme: readme_html.present?,
+          readme_html: readme_html
+        },
+      )
+    rescue Github::Errors::NotFound, Github::Errors::InvalidRepository
+      raise_error
     end
 
     private
 
+    attr_reader :repository_path, :options, :content
+
+    def parse_input(input)
+      sanitized_input = sanitize_input(input)
+
+      path, *options = sanitized_input.split(" ")
+
+      validate_options!(*options)
+
+      path.delete_suffix!("/") # remove optional trailing forward slash
+      repository_path = URI.parse(path)
+      repository_path.query = repository_path.fragment = nil
+
+      [repository_path.normalize.to_s, options]
+    end
+
+    def validate_options!(*options)
+      return if options.empty?
+      return if options.all? { |o| VALID_OPTIONS.include?(o) }
+
+      message = "GitHub tag: invalid options: #{options - VALID_OPTIONS} - supported options: #{VALID_OPTIONS}"
+      raise StandardError, message
+    end
+
+    def show_readme?
+      options.none?(OPTION_NO_README)
+    end
+
+    def fetch_readme(repository_path)
+      readme_html = Github::Client.readme(repository_path, accept: "application/vnd.github.html")
+      readme = Github::Client.readme(repository_path)
+      clean_relative_path!(readme_html, readme.download_url)
+    rescue Github::Errors::NotFound
+      nil
+    end
+
+    def sanitize_input(input)
+      ActionController::Base.helpers.strip_tags(input)
+        .gsub(GITHUB_DOMAIN_REGEXP, "")
+        .strip
+    end
+
     def raise_error
-      raise StandardError, "Invalid Github Repo link"
+      raise StandardError, "Invalid GitHub repository path or URL"
     end
 
     def clean_relative_path!(readme_html, url)
       readme = Nokogiri::HTML(readme_html)
-      readme.css("img").each do |img_tag|
-        path = img_tag.attributes["src"].value
-        if path[0, 4] != "http"
-          img_tag.attributes["src"].value = url.gsub(/\/README.md/, "") + "/" + path
-        end
+      readme.css("img, a").each do |element|
+        attribute = element.name == "img" ? "src" : "href"
+        element["href"] = "" if attribute == "href" && element.attributes[attribute].blank?
+        path = element.attributes[attribute].value
+        element.attributes[attribute].value = url.gsub(%r{/README.md}, "") + "/" + path if path[0, 4] != "http"
       end
       readme.to_html
-    end
-
-    def token
-      if Rails.env.test?
-        "REPLACE WITH VALID FOR VCR"
-      else
-        Identity.where(provider: "github").last(250).sample.token
-      end
     end
   end
 end
